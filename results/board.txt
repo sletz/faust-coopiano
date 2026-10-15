@@ -1,0 +1,15 @@
+modes 732, samples 67914
+shared L    time error -25.5 dB | |H| error dB: median 0.10 p90 0.51 p99 3.88
+shared R    time error -25.5 dB | |H| error dB: median 0.09 p90 0.58 p99 4.34
+region 0 L  time error -22.8 dB | |H| error dB: median 0.11 p90 0.60 p99 5.06
+region 0 R  time error -24.2 dB | |H| error dB: median 0.10 p90 0.63 p99 5.01
+region 1 L  time error -24.9 dB | |H| error dB: median 0.10 p90 0.57 p99 4.25
+region 1 R  time error -25.0 dB | |H| error dB: median 0.10 p90 0.63 p99 4.22
+region 2 L  time error -25.7 dB | |H| error dB: median 0.10 p90 0.52 p99 3.61
+region 2 R  time error -24.2 dB | |H| error dB: median 0.10 p90 0.63 p99 4.85
+region 3 L  time error -24.6 dB | |H| error dB: median 0.11 p90 0.55 p99 4.47
+region 3 R  time error -25.0 dB | |H| error dB: median 0.10 p90 0.65 p99 4.34
+weighted shared fit, region 0 L: time error -5.5 dB | |H| error dB: median 0.72 p90 3.46 p99 9.43
+weighted shared fit, region 0 R: time error -2.8 dB | |H| error dB: median 0.64 p90 3.18 p99 11.11
+weighted shared fit, region 3 L: time error -3.5 dB | |H| error dB: median 1.29 p90 3.65 p99 10.21
+weighted shared fit, region 3 R: time error -5.3 dB | |H| error dB: median 0.56 p90 2.37 p99 8.49

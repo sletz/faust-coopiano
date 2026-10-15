@@ -1,0 +1,4 @@
+full demo: body 45.0 % of a core, 2.89 % per sounding voice
+full demo_nopedal: body 36.1 % of a core, 2.89 % per sounding voice
+light demo: body 22.1 % of a core, 2.90 % per sounding voice
+light demo_nopedal: body 9.8 % of a core, 2.90 % per sounding voice

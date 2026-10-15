@@ -1,0 +1,874 @@
+//################################ coopiano.lib ##########################################
+// A Faust model of coopiano, the physically modelled piano of piano.hpp
+// (C++17, MIT): hammer, unison strings with two polarizations, longitudinal
+// phantom partials, action noises, dampers, sympathetic resonance, a modal
+// soundboard with bridge regions, and the room reverb of reverb.hpp.
+//
+// The C++ engine prepares each note offline: a 32x oversampled contact solve,
+// then a bank of decaying phasors. This library is a streaming equivalent:
+//
+// * every string mode is a complex one-pole resonator (Re z = displacement,
+//   as in polarization_state) driven by the hammer force with a first-order
+//   hold; the vertical and horizontal polarizations are two resonators that
+//   share the force in the C++ proportions, so splitting the state at
+//   separation and splitting the drive are the same thing;
+// * the hammer is solved implicitly at the audio rate: the felt law
+//   F = K delta^p (1 + 0.12 delta') meets the string's direct response to
+//   the current force, a scalar equation solved by Newton (monotone, from a
+//   bracketing start);
+// * a phantom partial is the product of two mode states: the product of two
+//   decaying phasors is the decaying phasor at the sum frequency, which is
+//   how piano.hpp builds them, so streaming them is exact up to the knee;
+// * fixed random draws and post-solve quantities come from the C++ model
+//   itself, through coopiano_tables.lib (scripts/gen_tables.py).
+//
+// Prefix: `cp`. Sample rate free; the C++ model runs at 44.1 kHz.
+//########################################################################################
+
+declare name "coopiano";
+declare version "0.1.0";
+declare license "MIT";
+
+import("stdfaust.lib");
+tb = library("coopiano_tables.lib");
+
+//==================================== Sizes ============================================
+// NS: mode slots per voice, shared by the unison strings string by string
+// (with ns strings, slot k is partial k % (NS/ns) + 1 of string k / (NS/ns)),
+// so a one-string bass key gets NS partials. NS must be a multiple of 6.
+// NP: slots that parent phantom partials; DMAX: largest partial distance of a
+// phantom pair (piano.hpp uses 3; 0.55^3 is 15 dB down).
+NS = 96;
+NP = 96;
+DMAX = 2;
+
+//==================================== Voicing ==========================================
+// The controls of default.ini, with its defaults and ranges.
+g_hammer(x) = vgroup("hammer", x);
+g_strings(x) = vgroup("strings", x);
+g_tone(x) = vgroup("tone", x);
+g_reson(x) = vgroup("resonance", x);
+g_room(x) = vgroup("reverb", x);
+g_action(x) = vgroup("action", x);
+
+h_stiffness = g_hammer(hslider("stiffness_scale", 0.9, 0.25, 4, 0.01));
+h_mass = g_hammer(hslider("mass_scale", 1.3, 0.5, 2, 0.01));
+h_width = g_hammer(hslider("felt_width_scale", 1.4, 0.5, 2, 0.01));
+h_vmax = g_hammer(hslider("maximum_velocity_mps", 6, 2, 8, 0.01));
+h_vexp = g_hammer(hslider("velocity_exponent", 1.8, 0.75, 2.5, 0.01));
+
+s_decay = g_strings(hslider("decay_scale", 1.1, 0.25, 2, 0.01));
+s_treble_decay = g_strings(hslider("treble_decay_scale", 0.38, 0.1, 2, 0.01));
+s_loss = g_strings(hslider("partial_loss_scale", 1, 0.25, 4, 0.01));
+s_inharm = g_strings(hslider("inharmonicity_scale", 0.85, 0, 3, 0.01));
+s_detune = g_strings(hslider("unison_detune_scale", 0.35, 0, 3, 0.01));
+s_treble_detune = g_strings(hslider("treble_unison_detune", 0.875, 0, 3, 0.001));
+s_fast = g_strings(hslider("fast_decay_scale", 0.95, 0.75, 2, 0.01));
+s_hratio = g_strings(hslider("horizontal_ratio", 0.4, 0, 1, 0.01));
+s_long = g_strings(hslider("longitudinal_gain", 0.22, 0, 0.5, 0.01));
+s_coupling = g_strings(hslider("bridge_coupling", 1, 0, 3, 0.01));
+
+t_fund = g_tone(hslider("fundamental_boost_db", 0, -6, 12, 0.1));
+t_lowcut = g_tone(hslider("lower_overtone_cut_db", 0, 0, 12, 0.1));
+t_curve = g_tone(hslider("bridge_curve_scale", 1, 0, 2, 0.01));
+t_midg = g_tone(hslider("mid_gain_db", -1.5, -9, 9, 0.1));
+t_midf = g_tone(hslider("mid_frequency_hz", 1200, 200, 5000, 1));
+t_midw = g_tone(hslider("mid_width_octaves", 0.9, 0.2, 2, 0.01));
+
+// spread and position_depth are fixed by the soundboard fit (gen_tables.py).
+
+r_gain = g_reson(hslider("gain", 0.18, 0, 1, 0.01));
+r_maxdecay = g_reson(hslider("maximum_decay_seconds", 12, 1, 30, 0.1));
+r_damper = g_reson(hslider("damper_decay_seconds", 0.18, 0.03, 2, 0.01));
+r_transition = g_reson(hslider("transition_seconds", 0.04, 0.001, 0.2, 0.001));
+r_own = g_reson(hslider("own_drive", 0, 0, 1, 0.01));
+
+v_mix = g_room(hslider("mix", 0.3, 0, 1, 0.01));
+v_decay = g_room(hslider("decay_seconds", 1.1, 0.2, 4, 0.01));
+v_predelay = g_room(hslider("predelay_ms", 12, 0, 80, 0.1));
+v_damping = g_room(hslider("damping_hz", 5500, 500, 12000, 1));
+
+a_knock = g_action(hslider("knock_gain", 1, 0, 4, 0.01));
+a_damper = g_action(hslider("damper_scale", 1, 0.25, 4, 0.01));
+// Sustain pedal position, 0 up .. 1 down (CC64/127).
+pedal = g_action(hslider("pedal", 0, 0, 1, 0.01));
+out_gain = g_action(hslider("output_gain", 0.0011, 0, 0.01, 0.0001));
+
+//==================================== Helpers ==========================================
+PI = ma.PI;
+T = 1.0 / ma.SR;
+LN1000 = log(1000.0);
+clamp(lo, hi, x) = max(lo, min(hi, x));
+smooth01(x) = c * c * (3.0 - 2.0 * c) with { c = clamp(0.0, 1.0, x); };
+log2(x) = log(x) / log(2.0);
+db2lin(d) = pow(10.0, d / 20.0);
+// A per-sample coefficient of piano.hpp (written for 44.1 kHz) at the current rate.
+pole44(a) = pow(a, 44100.0 / ma.SR);
+
+// Railsback stretch (midi_to_freq).
+mtof(m) = 440.0 * pow(2.0, (m - 69.0 + dev / 100.0) / 12.0)
+with {
+    x = (m - 69.0) / select2(m < 69.0, 39.0, 48.0);
+    x3 = x * x * x;
+    dev = 14.0 * x3 + 16.0 * x3 * x3 * x;
+};
+
+// Piecewise log-linear interpolation over note number (interp_log), written
+// out per point count: the evaluator then needs no list pattern matching.
+lseg(m, x0, y0, x1, y1) = (m > x0) * (m <= x1) * y0 * pow(y1 / y0, (m - x0) / (x1 - x0));
+lends(m, x0, y0, xn, yn, inner) = select2(m <= x0, select2(m >= xn, inner, yn), y0);
+ilog4(m, x0, y0, x1, y1, x2, y2, x3, y3) = lends(m, x0, y0, x3, y3,
+    lseg(m, x0, y0, x1, y1) + lseg(m, x1, y1, x2, y2) + lseg(m, x2, y2, x3, y3));
+ilog5(m, x0, y0, x1, y1, x2, y2, x3, y3, x4, y4) = lends(m, x0, y0, x4, y4,
+    lseg(m, x0, y0, x1, y1) + lseg(m, x1, y1, x2, y2) + lseg(m, x2, y2, x3, y3) + lseg(m, x3, y3, x4, y4));
+ilog7(m, x0, y0, x1, y1, x2, y2, x3, y3, x4, y4, x5, y5, x6, y6) = lends(m, x0, y0, x6, y6,
+    lseg(m, x0, y0, x1, y1) + lseg(m, x1, y1, x2, y2) + lseg(m, x2, y2, x3, y3)
+    + lseg(m, x3, y3, x4, y4) + lseg(m, x4, y4, x5, y5) + lseg(m, x5, y5, x6, y6));
+ilog8(m, x0, y0, x1, y1, x2, y2, x3, y3, x4, y4, x5, y5, x6, y6, x7, y7) = lends(m, x0, y0, x7, y7,
+    lseg(m, x0, y0, x1, y1) + lseg(m, x1, y1, x2, y2) + lseg(m, x2, y2, x3, y3) + lseg(m, x3, y3, x4, y4)
+    + lseg(m, x4, y4, x5, y5) + lseg(m, x5, y5, x6, y6) + lseg(m, x6, y6, x7, y7));
+
+// Bridge admittance at f Hz, linear between the 1 Hz table points (BridgeAdmittance).
+adm_at(tbl, beyond, f) = select2(f >= 12000.0, v0 + (fc - i) * (v1 - v0), beyond)
+with {
+    fc = clamp(0.0, 11999.0, f);
+    i = int(fc);
+    v0 = tbl, i : rdtable;
+    v1 = tbl, i + 1 : rdtable;
+};
+adm_re(f) = adm_at(tb.adm_re, tb.adm_mean, f);
+adm_im(f) = adm_at(tb.adm_im, 0.0, f);
+
+//==================================== Key parameters ===================================
+// make_key_params, as functions of the (possibly fractional) note number m.
+key_f0(m) = mtof(m);
+key_L(m) = ilog7(m, 21, 1.92, 36, 1.30, 48, 0.92, 60, 0.65, 69, 0.41, 84, 0.185, 108, 0.052);
+key_T(m) = select2(m < 40.0, 700.0, 760.0);
+key_mu(m) = key_T(m) / (c * c) with { c = 2.0 * key_L(m) * key_f0(m); };
+key_ms(m) = key_mu(m) * key_L(m);
+key_B(m) = (7.0e-4 * pow(f0 / 440.0, 1.4) + 1.0e-4 * clamp(0.0, 2.2, 55.0 / f0)) * s_inharm
+with { f0 = key_f0(m); };
+key_alpha(m) = ilog4(m, 21, 0.125, 60, 0.118, 84, 0.10, 108, 0.065);
+key_T60(m) = ilog8(m, 21, 58.0, 45, 48.0, 57, 35.0, 69, 24.0, 81, 14.0, 84, 10.0, 96, 4.2, 108, 1.2)
+    * treble_decay * s_decay
+with {
+    mix = smooth01((m - 84.0) / 6.0);
+    treble_decay = select2(m >= 90.0, 1.0 + (s_treble_decay - 1.0) * mix, s_treble_decay);
+};
+key_c2(m) = 1.0e-7 * ilog7(m, 21, 3.0, 33, 2.5, 44, 1.6, 52, 1.0, 60, 0.6, 72, 0.5, 108, 0.5) * s_loss;
+key_t(m) = clamp(0.0, 1.0, (m - 21.0) / 87.0);
+key_gentle(m) = smooth01((m - 84.0) / 12.0);
+key_mh(m) = (11.0 - 7.0 * key_t(m)) * 1.0e-3 * h_mass;
+key_p(m) = 2.85 + 0.85 * key_t(m);
+key_K(m) = pow(10.0, 10.70 + 2.15 * key_t(m) + 4.0 * th / 34.5 - 0.4 * key_gentle(m)) * h_stiffness
+with {
+    th0 = clamp(0.0, 36.0, m - 72.0);
+    th = select2(th0 < 3.0, th0 - 1.5, th0 * th0 / 6.0);
+};
+key_strike_gain(m) = db2lin(strike_db - 2.0 * smooth01((m - 84.0) / 24.0) + key_gentle(m))
+with {
+    so = clamp(0.0, 3.0, (m - 72.0) / 12.0);
+    strike_db = select2(so <= 1.0, 3.0 - 6.0 * so, -3.0 * so * so);
+};
+key_fast(m) = max(1.0, ilog5(m, 21, 7.0, 69, 6.5, 84, 3.0, 96, 2.0, 108, 1.5) * s_fast);
+key_det(m) = d0 + smooth01((m - 79.0) / 5.0) * max(0.0, s_treble_detune - d0)
+with { d0 = clamp(0.30, 1.0, 620.0 / key_f0(m)) * s_detune; };
+key_flong(m) = 5100.0 * ilog5(m, 21, 0.75, 33, 0.79, 41, 0.86, 47, 1.0, 108, 1.0) / (2.0 * key_L(m));
+key_sigh(m) = ilog4(m, 21, 0.013, 60, 0.010, 84, 0.007, 108, 0.004) * h_width;
+key_body(m) = smooth01((m - 33.0) / 12.0) * smooth01((69.0 - m) / 12.0);
+key_fundg(m) = db2lin(t_fund * key_body(m));
+key_lowdb(m) = t_lowcut * key_body(m);
+key_ns(m) = 1 + (m >= 31.0) + (m >= 41.0);
+key_damper(m) = key_f0(m) < 1400.0;
+// Physical key index 0..87 for the tables.
+key_index(m) = clamp(0, 87, int(m + 0.5) - 21);
+
+// Empirical register-dependent bridge voicing (bridge_trans).
+bridge_trans(m, f) = db2lin(shaped) * key_strike_gain(m)
+with {
+    f0 = key_f0(m);
+    sg(q0, d0, q1, d1) = (f > q0) * (f <= q1) * (d0 + log(f / q0) / log(q1 / q0) * (d1 - d0));
+    db = sg(250, 0, 400, 1) + sg(400, 1, 600, 1) + sg(600, 1, 900, 2) + sg(900, 2, 1250, 2)
+       + sg(1250, 2, 1700, 8) + sg(1700, 8, 2200, 3) + sg(2200, 3, 3000, 0) + sg(3000, 0, 4000, 0);
+    s = clamp(0.0, 1.0, log(523.25 / f0) / log(523.25 / 440.0));
+    bass = smooth01(log2(mtof(56.0) / f0) / (16.0 / 12.0));
+    low = smooth01(log2(400.0 / f) / log2(400.0 / 150.0));
+    mid = exp(-0.5 * pow(log2(f / 850.0) / 0.7, 2.0));
+    bell = t_midg * exp(-0.5 * pow(log2(f / t_midf) / t_midw, 2.0));
+    shaped = (s * db * (1.0 - bass) + bass * (6.0 * low - 4.0 * mid)) * t_curve + bell;
+};
+
+// Broad lower-overtone restraint (lower_overtone_gain).
+lower_gain(m, f) = db2lin(-key_lowdb(m) * rise * fall)
+with {
+    rise = smooth01(log2(f / 160.0) / log2(220.0 / 160.0));
+    fall = smooth01(log2(2000.0 / f));
+};
+
+// Treble tilt above 1.4 f0 (treble_tilt).
+treble_tilt(m, f) = db2lin(-r * clamp(0.0, 18.0, 12.0 * log2(f / (1.4 * key_f0(m)))))
+with { r = smooth01(log2(key_f0(m) / mtof(79.0)) * 12.0 / 5.0); };
+
+// Resonant boost near the longitudinal string modes (longitudinal_gain).
+long_gain(m, f) = 1.0 + sum(j, 5, (fm(j) < 5000.0) * 4.6 * bw(j) * bw(j) / ((f - fm(j)) * (f - fm(j)) + bw(j) * bw(j)))
+with {
+    fm(j) = (j + 1) * key_flong(m);
+    bw(j) = fm(j) / 50.0;
+};
+
+// Amplitude of the longitudinal layer: full to E2, 30% at C3, none from G#3.
+middle_long(m) = select2(m <= 40.0, select2(mm < 48.0,
+        0.3 * (1.0 - smooth01((mm - 48.0) / 8.0)),
+        1.0 - 0.7 * smooth01((mm - 40.0) / 8.0)), 1.0) * (m < 56.0)
+with { mm = 69.0 + 12.0 * log2(key_f0(m) / 440.0); };
+
+aftersound(n) = select2(n == 1, select2(n == 2, 1.0, 0.6), 0.35);
+
+//==================================== Mode slots ======================================
+// Everything a slot needs, at control rate: m is the note number, k the slot.
+slot_per(m) = NS / key_ns(m);
+slot_s(m, k) = floor(k / slot_per(m));
+slot_n(m, k) = k - slot_s(m, k) * slot_per(m) + 1;
+
+// Detuned fundamental of the slot's string.
+slot_f0s(m, k) = key_f0(m) * pow(2.0, det / 1200.0)
+with {
+    s = slot_s(m, k);
+    u = tb.key_u, key_index(m) * 3 + int(s) : rdtable;
+    det = select3(int(s), -1.15, 0.1, 0.7) * key_det(m) * u;
+};
+
+slot_fn0(m, k) = n * f0s * sqrt(1.0 + key_B(m) * n * n)
+with { n = slot_n(m, k); f0s = slot_f0s(m, k); };
+
+slot_exists(m, k) = (slot_fn0(m, k) <= 17500.0) * (slot_fn0(m, k) < 0.45 * ma.SR);
+
+// Mode frequency after the admittance's reactive pull (build_string).
+slot_fn(m, k) = fn0 + s_coupling * slot_f0s(m, k) * zs * adm_im(fn0) / PI
+with {
+    fn0 = slot_fn0(m, k);
+    zs = sqrt(key_T(m) * key_ms(m) / key_L(m));
+};
+
+// Late-stage loss of the mode (build_string).
+slot_sig(m, k) = LN1000 / key_T60(m) + key_c2(m) * (fn0 * fn0 - f0s * f0s) / (1.0 + fn0 / 2500.0)
+    + 0.8 * pow(fn0 / 4000.0, 3.0)
+with { fn0 = slot_fn0(m, k); f0s = slot_f0s(m, k); };
+
+// Strike-point readout with the finite felt width.
+slot_sa(m, k) = sin(n * PI * key_alpha(m)) * exp(-0.5 * pow(n * PI * key_sigh(m) / key_L(m), 2.0))
+with { n = slot_n(m, k); };
+
+// Bridge weight without voicing (the phantom parent weight) and with it.
+slot_pw(m, k) = key_T(m) * (n * PI / key_L(m)) * select2(n - 2.0 * floor(n / 2.0) > 0.5, 1.0, -1.0)
+    * bridge_trans(m, f) * treble_tilt(m, f)
+with { n = slot_n(m, k); f = slot_fn(m, k); };
+slot_wbr(m, k) = slot_pw(m, k) * select2(slot_n(m, k) == 1, lower_gain(m, slot_fn(m, k)), key_fundg(m));
+
+// Two-stage decay (collect_phasors + fast_polarization_decay): the
+// horizontal (slow) and vertical (prompt) rates and the horizontal share.
+slot_sgh(m, k) = slot_sig(m, k) * (1.0 - 0.45 * top_tail(m) - 0.25 * last_oct(m)) + slot_loss(m, k);
+slot_sgv(m, k) = v1 + early_mix * max(0.0, early_rate - v1)
+with {
+    n0 = slot_n(m, k) - 1;
+    f = slot_fn(m, k);
+    base = LN1000 / key_T60(m);
+    ratio = clamp(0.1, 8.0, 3.0 * adm_re(f) / tb.adm_mean);
+    prompt = base * key_fast(m) * select2((s_coupling > 0.0) * (f < 12000.0), 1.0, pow(ratio, s_coupling));
+    v0 = prompt + max(0.0, slot_sig(m, k) - base) * sqrt(key_fast(m));
+    v1 = v0 + slot_loss(m, k);
+    high = smooth01(log2(key_f0(m) / mtof(76.0)) * 4.0);
+    early_rate = select2(n0 == 0, 5.0 + 2.0 * min(n0, 3.0) + 3.0 * high, 10.0) * (1.0 + 0.6 * last_oct(m));
+    early_mix = select2(n0 == 0, upper(m), high);
+};
+slot_loss(m, k) = upper(m) * 0.6 * min(slot_n(m, k) - 1, 3.0);
+slot_share(m, k) = s_hratio * aftersound(n) * (1.0 + upper(m) * (tail - 1.0))
+with {
+    n = slot_n(m, k);
+    high = smooth01(log2(key_f0(m) / mtof(76.0)) * 4.0);
+    tail = select2(n == 1, select2(n == 2, 0.75 - 0.25 * high, 0.85 - 0.20 * high), 1.0);
+};
+top_tail(m) = smooth01(log2(key_f0(m) / mtof(84.0)) * 2.0);
+last_oct(m) = smooth01(log2(key_f0(m) / mtof(96.0)));
+upper(m) = smooth01(log2(key_f0(m) / mtof(72.0)) * 3.0);
+
+// Seated-damper loss of the key (collect_phasors' key_damp_sig).
+key_dsig(m) = LN1000 / clamp(0.06 * a_damper, 0.45 * a_damper, a_damper * 0.25 * pow(220.0 / key_f0(m), 0.3));
+
+// Deterministic draw in [-1, 1) per key and slot: the second polarization's
+// hair of detune (the C++ draws it from a per-key generator).
+hash(m, k) = 2.0 * ma.frac(sin(int(m + 0.5) * 12.9898 + k * 78.233 + 0.5) * 43758.5453) - 1.0;
+
+//==================================== Resonators ======================================
+// phi1(x) = (e^x - 1)/x and phi2(x) = (e^x - 1 - x)/x^2 at complex x, the
+// first-order-hold integrals of a mode over one sample (Taylor near 0).
+phis(xr, xi) = sel(p1r, t1r), sel(p1i, t1i), sel(p2r, t2r), sel(p2i, t2i)
+with {
+    n2 = xr * xr + xi * xi;
+    sel(a, b) = select2(n2 < 1.0e-4, a, b);
+    er = exp(xr) * cos(xi) - 1.0;
+    ei = exp(xr) * sin(xi);
+    d = max(n2, 1.0e-300);
+    p1r = (er * xr + ei * xi) / d;
+    p1i = (ei * xr - er * xi) / d;
+    p2r = ((p1r - 1.0) * xr + p1i * xi) / d;
+    p2i = (p1i * xr - (p1r - 1.0) * xi) / d;
+    x2r = xr * xr - xi * xi;
+    x2i = 2.0 * xr * xi;
+    x3r = x2r * xr - x2i * xi;
+    x3i = x2r * xi + x2i * xr;
+    t1r = 1.0 + xr / 2.0 + x2r / 6.0 + x3r / 24.0;
+    t1i = xi / 2.0 + x2i / 6.0 + x3i / 24.0;
+    t2r = 0.5 + xr / 6.0 + x2r / 24.0 + x3r / 120.0;
+    t2i = xi / 6.0 + x2i / 24.0 + x3i / 120.0;
+};
+
+// Force gains of a mode of rate sigma, frequency w (rad/s) and coupling g:
+// z[n] = lambda z[n-1] + G0 F[n-1] + G1 F[n], z = q - i (q' + sigma q)/w.
+// Returns (G0r, G0i, G1r, G1i).
+force_gains(sigma, w, g) = T * c * (p1i - p2i), -T * c * (p1r - p2r), T * c * p2i, -T * c * p2r
+with {
+    c = g / w;
+    p1r = phis(-sigma * T, w * T) : _, !, !, !;
+    p1i = phis(-sigma * T, w * T) : !, _, !, !;
+    p2r = phis(-sigma * T, w * T) : !, !, _, !;
+    p2i = phis(-sigma * T, w * T) : !, !, !, _;
+};
+
+// The mode itself, as its free prediction w[n] = lambda z[n-1] + G0 F[n-1]
+// (the state at n before F[n] acts, so z[n] = w[n] + G1 F[n]):
+// w[n] = lambda w[n-1] + (lambda G1 + G0) F[n-1]. Driven by u = F[n-1];
+// r is the per-sample radius (damper blend), cs/sn the rotation, (gr, gi)
+// the force gain lambda G1 + G0. Outputs (Re w, Im w).
+mode(r, cs, sn, gr, gi, u) = loop ~ (_, _)
+with {
+    loop(wr, wi) = r * (cs * wr - sn * wi) + gr * u,
+                   r * (sn * wr + cs * wi) + gi * u;
+};
+
+//==================================== Hammer ==========================================
+// Solve d + C d^p / (1 + E d^p) = a for the compression d in (0, a]
+// (C, E >= 0, a > 0), the felt law with its hysteresis rate taken at the
+// same instant. Newton from the smaller of the one-term solutions, kept in
+// [d/2, a]; five iterations reach the C++ contact to 1e-3 (scripts/contact_sim.py).
+felt_solve(a, C, E, p) = it(5, d0)
+with {
+    aa = max(a, 1.0e-30);
+    d0 = min(aa, pow(aa / max(C, 1.0e-300), 1.0 / p));
+    it(0, d) = d;
+    it(N, d) = it(N - 1, min(aa, max(0.5 * d, d - (d + C * dp / den - aa) / (1.0 + C * p * dp / (d * den * den)))))
+    with { dp = pow(d, p); den = 1.0 + E * dp; };
+};
+
+//==================================== Voice parts =====================================
+// Top-level functions with explicit arguments: m note number, k slot,
+// P polarization (0 vertical/prompt, 1 horizontal/slow), dmp the damper
+// position (0 open .. 1 seated), u = F[n-1] the hammer force.
+
+// (sigma, w, coupling g, released sigma) of a polarization.
+pol_sigma(m, k, P) = select2(P, slot_sgv(m, k), slot_sgh(m, k));
+pol_omega(m, k, P) = 2.0 * PI * slot_fn(m, k) * select2(P, 1.0, 1.0 + 2.5e-6 * (1.0 + 0.8 * hash(m, k)));
+pol_coup(m, k, P) = slot_exists(m, k) * 2.0 / key_ms(m) * slot_sa(m, k) / key_ns(m)
+    * select2(P, 1.0, slot_share(m, k)) / (1.0 + slot_share(m, k));
+pol_rsig(m, k, P) = max(key_dsig(m), pol_sigma(m, k, P));
+pol_radius(m, k, P, dmp) = ro + dmp * (rd - ro)
+with { ro = exp(-pol_sigma(m, k, P) * T); rd = exp(-pol_rsig(m, k, P) * T); };
+// Parameters of one polarization (at the note m; computed on change, see
+// voice_drawn): open radius, seated-damper radius, rotation, force gain
+// lambda G1 + G0, rate and frequency. NPOL values.
+NPOL = 8;
+pol_params(m, k, P) = force_gains(sig, w, cpl) : \(g0r, g0i, g1r, g1i).(
+    ro, exp(-pol_rsig(m, k, P) * T), cs, sn, ro * (cs * g1r - sn * g1i) + g0r, ro * (sn * g1r + cs * g1i) + g0i, sig, w)
+with {
+    sig = pol_sigma(m, k, P);
+    w = pol_omega(m, k, P);
+    cpl = pol_coup(m, k, P);
+    ro = exp(-sig * T);
+    cs = cos(w * T);
+    sn = sin(w * T);
+};
+// Direct gains of F[n] on the strike-point displacement and velocity.
+pol_direct(m, k, P) = force_gains(pol_sigma(m, k, P), pol_omega(m, k, P), pol_coup(m, k, P))
+    : \(g0r, g0i, g1r, g1i).(g1r, -pol_sigma(m, k, P) * g1r - pol_omega(m, k, P) * g1i);
+
+// Parameters of one slot: both polarizations, the strike-point weight
+// averaged over the unison (equal force per string), the bridge weight, the
+// string index and its readout asymmetry (prepare_readout: bichords get a
+// fixed 25% split). NSP values.
+NSP = 2 * NPOL + 4;
+slot_params(m, k) = pol_params(m, k, 0), pol_params(m, k, 1), slot_sa(m, k) / key_ns(m), slot_wbr(m, k), s, asym
+with {
+    s = slot_s(m, k);
+    asym = select2(key_ns(m) == 2, 0.0, select2(s < 0.5, -0.25, 0.25));
+};
+
+// Phantom pair (add_phantoms): slot k and its partner k + d on the same
+// string; the product of their states is the sum-frequency phasor. Its
+// coefficient without the readout of the string (applied per strike).
+pair_coef(m, k, d) = valid * s_long * pow(0.55, d) * qn(k) * qn(j) * bridge_trans(m, f) * long_gain(m, f)
+    * lower_gain(m, f) * (1.0 - 0.75 * smooth01((f - 500.0) / 500.0))
+with {
+    j = min(k + d, NS - 1);
+    f = slot_fn(m, k) + slot_fn(m, j);
+    qn(i) = slot_pw(m, i) / bridge_trans(m, slot_fn(m, i));
+    ok(i) = slot_exists(m, i) * (slot_fn(m, i) < 3500.0);
+    valid = (k + d < NS) * ok(k) * ok(j) * (slot_s(m, k) == slot_s(m, j)) * (f <= 4200.0) * (m < 56.0);
+};
+NPAIR = NP * (DMAX + 1);
+
+// Every parameter of a voice that depends on the note and the voicing:
+// NS slots, NPAIR phantom coefficients, then the two direct gains.
+NPAR = NSP * NS + NPAIR + 2;
+voice_params(m) = par(k, NS, slot_params(m, k)),
+                  par(pr, NPAIR, pair_coef(m, int(pr / (DMAX + 1)), pr % (DMAX + 1))),
+                  sum(k, NS, ya(k) * (dsp(k, 0) + dsp(k, 1))), sum(k, NS, ya(k) * (dvl(k, 0) + dvl(k, 1)))
+with {
+    ya(k) = slot_sa(m, k) / key_ns(m);
+    dsp(k, P) = pol_direct(m, k, P) : _, !;
+    dvl(k, P) = pol_direct(m, k, P) : !, _;
+};
+
+// The same parameters in ondemand domains of eight slots clocked by chg, the
+// note held at the change (NS and NP are multiples of 8).
+voice_params_on(chg, m) = par(c, NS / 8, on_change(chg, m, \(mm).(par(i, 8, slot_params(mm, 8 * c + i))))),
+    par(c, NP / 8, on_change(chg, m, \(mm).(par(i, 8, par(d, DMAX + 1, pair_coef(mm, 8 * c + i, d)))))),
+    (par(c, NS / 8, on_change(chg, m, \(mm).(direct_part(mm, c)))) :> _, _);
+// Direct gains summed over eight slots (chunk c).
+direct_part(m, c) = sum(i, 8, ya(8 * c + i) * (dsp(8 * c + i, 0) + dsp(8 * c + i, 1))),
+                    sum(i, 8, ya(8 * c + i) * (dvl(8 * c + i, 0) + dvl(8 * c + i, 1)))
+with {
+    ya(k) = slot_sa(m, k) / key_ns(m);
+    dsp(k, P) = pol_direct(m, k, P) : _, !;
+    dvl(k, P) = pol_direct(m, k, P) : !, _;
+};
+
+// Change detector of the voicing controls that the parameters read.
+voicing_hash = h_stiffness * 1.1 + h_mass * 1.3 + h_width * 1.7 + h_vmax * 1.9 + h_vexp * 2.3
+    + s_decay * 2.9 + s_treble_decay * 3.1 + s_loss * 3.7 + s_inharm * 4.1 + s_detune * 4.3
+    + s_treble_detune * 4.7 + s_fast * 5.3 + s_hratio * 5.9 + s_long * 6.1 + s_coupling * 6.7
+    + t_fund * 7.1 + t_lowcut * 7.3 + t_curve * 7.9 + t_midg * 8.3 + t_midf * 8.9e-3 + t_midw * 9.7
+    + a_damper * 10.1;
+
+// One polarization of one slot at the audio rate: parameters, damper
+// position, force u = F[n-1]. Outputs Re w, Im w and the free velocity.
+polbox(dmp) = \(ro, rdd, cs, sn, gr, gi, sig, w, u).(
+    mode(ro + dmp * (rdd - ro), cs, sn, gr, gi, u) : \(wr, wi).(wr, wi, -sig * wr - w * wi));
+
+// One slot at the audio rate: inputs its NSP parameters then u. SLOT_OUT
+// outputs: 0 strike-point free displacement at n, 1 its free velocity,
+// 2 bridge force, 3..6 Re/Im of the vertical then horizontal states, 7 the
+// readout gain of its string. The bridge force and the phantoms read the
+// free states: they differ from z[n] by G1 F[n], only during contact.
+SLOT_OUT = 8;
+NSUM = 3;
+slotbox(dmp, r0, r1, r2) = route(NSP + 1, 2 * (NPOL + 1) + 4,
+        par(i, NPOL, (i + 1, i + 1)), (NSP + 1, NPOL + 1),
+        par(i, NPOL, (NPOL + i + 1, NPOL + 1 + i + 1)), (NSP + 1, 2 * NPOL + 2),
+        par(i, 4, (2 * NPOL + 1 + i, 2 * NPOL + 3 + i)))
+    : (polbox(dmp), polbox(dmp), _, _, _, _)
+    : \(wr0, wi0, ve0, wr1, wi1, ve1, ya, wbr, s, asym).(
+        ya * (wr0 + wr1), ya * (ve0 + ve1), rd(s, asym) * wbr * (wr0 + wr1), wr0, wi0, wr1, wi1, rd(s, asym))
+with {
+    // Readout gain of string s (prepare_readout): r0..r2 are the per-strike
+    // uniform draws in [-1, 1].
+    rd(s, asym) = (1.0 + s_hratio) * (1.0 + asym + 0.13 * select3(int(s), r0, r1, r2));
+};
+
+// Phantom partials at the audio rate. Inputs: the SLOT_OUT * NS slot outputs
+// then the NPAIR coefficients. A pair reads the states of its two slots, the
+// readout of the first and its coefficient.
+phantom_route = route(SLOT_OUT * NS + NPAIR, 10 * NPAIR, par(q, 10 * NPAIR, (src(q) + 1, q + 1)))
+with {
+    src(q) = select2(e < 8, select2(e == 8, SLOT_OUT * NS + pr, SLOT_OUT * k + 7),
+                     SLOT_OUT * select2(e < 4, j, k) + 3 + e % 4)
+    with {
+        pr = int(q / 10);
+        e = q % 10;
+        k = int(pr / (DMAX + 1));
+        j = min(k + pr % (DMAX + 1), NS - 1);
+    };
+};
+// Re(a b) without squares when a = b (d = 0): x*x is normalized to pow(x, 2),
+// a libm call in the JIT.
+cre(ar, ai, br, bi) = (ar - ai) * (br + bi) + ai * br - ar * bi;
+phantom_pair = \(vri, vii, hri, hii, vrj, vij, hrj, hij, rd, cv).(cv * rd * rd * (cre(vri, vii, vrj, vij) + cre(hri, hii, hrj, hij)));
+phantom_sum = phantom_route : par(pr, NPAIR, phantom_pair) : gsum(NPAIR, 32);
+// Only keys below G#3 have a longitudinal layer: the pairs run in an ondemand
+// domain clocked by that condition (faust-rs), so the other keys skip them;
+// the held output of a domain that stopped is masked.
+phantoms(m) = (on, si.bus(SLOT_OUT * NS + NPAIR)) : ondemand(phantom_sum) : *(on * middle_long(m))
+with { on = m < 56.0; };
+
+// Hammer (run_contact, solved implicitly): state at n-1 is position,
+// velocity, touched, active; outputs F[n]. Inputs: the strings' free
+// strike-point displacement and velocity at n, their direct gains rs and rv,
+// F[n-1] and the trigger. Both the compression and its rate (the felt's
+// hysteresis term) are taken at n; a strike starts the hammer at the string.
+hammer(m, v, ysf, ydf, rs, rv, u, trig) = (ysf, ydf, u, trig) : (step ~ si.bus(4)) : !, !, !, !, _
+with {
+    mh = key_mh(m);
+    p = key_p(m);
+    ns = key_ns(m);
+    v0 = h_vmax * pow(v, h_vexp);
+    step(yh, vh, tc, ac, ysf, ydf, uu, tr) = yh1, vh1, tc1, ac1, F
+    with {
+        vh0 = select2(tr, vh, v0);
+        yh0 = select2(tr, yh, ysf - T * vh0);
+        tc0 = select2(tr, tc, 0.0);
+        ac0 = select2(tr, ac, 1.0);
+        yfree = yh0 + T * vh0 - T * T * uu / (3.0 * mh);
+        a = yfree - ysf;
+        // compression rate at n: d0 - d1 F
+        d0 = vh0 - T * uu / (2.0 * mh) - ydf;
+        d1 = T / (2.0 * mh) + rv;
+        A = key_K(m) * ns * max(0.0, 1.0 + 0.12 * d0) * ac0;
+        E = 0.12 * d1 * key_K(m) * ns * ac0;
+        contact = (a > 0.0) * (A > 0.0);
+        d = felt_solve(a, (T * T / (6.0 * mh) + rs) * A, E, p);
+        F = contact * A * pow(d, p) / (1.0 + E * pow(d, p));
+        vh1 = vh0 - T * (uu + F) / (2.0 * mh);
+        yh1 = yfree - T * T * F / (6.0 * mh);
+        tc1 = max(tc0, contact);
+        ac1 = ac0 * (1.0 - tc1 * (1.0 - contact) * (vh1 < 0.0));
+    };
+};
+
+// Action noises (prep_note_into's attack buffer and damper felt), from the
+// trigger, the gate and the excitation level of the strike.
+noises(m, v, gate, trig) = knock + structural + scrape + treble + damper_noise
+with {
+    f0 = key_f0(m);
+    tp = tone_peak(m, v);
+    started = max(trig) ~ _;
+    g(i) = no.multinoise(8) : ba.selector(i, 8) : *(sqrt(3.0));
+    age = (+(1) : *(1 - trig)) ~ _;
+    t = age / ma.SR;
+    lp1(a, x) = x : fi.pole(pole44(a)) : *(1.0 - pole44(a));
+    win(len) = started * (age < len);
+
+    kvel = v + clamp(0.0, 1.0, log2(880.0 / f0)) * (min(v, 0.5) + 0.12 * ma.tanh(max(0.0, v - 0.5) / 0.12) - v);
+    gain = 2.2 * a_knock * tp * kvel;
+    tk = smooth01(log2(f0 / mtof(84.0)));
+    top = smooth01(log2(f0 / mtof(96.0)));
+    klen = int(0.012 * ma.SR);
+    x = age / klen;
+    lpb = g(3) : lp1(0.92) : lp1(0.92);
+    knock = win(klen) * gain * (1.0 + 0.8 * tk * (1.0 - top))
+          * (pow(sin(PI * x), 2.0) + 3.4 * lpb * sin(PI * x));
+
+    body = smooth01(log2(f0 / mtof(68.0)) * 1.5);
+    fq = (89.0, 117.0, 163.0, 231.0, 277.0);
+    wt = (1.0, 0.65, 0.32, 0.20, 0.28);
+    partial(j) = (\(sr, si).(select2(trig, lr * sr - li * si, 1.0), select2(trig, li * sr + lr * si, 0.0))) ~ (_, _)
+                 : !, *(ba.take(j + 1, wt))
+    with {
+        fj = ba.take(j + 1, fq);
+        dj = 8.0 + 0.01 * fj;
+        lr = exp(-dj * T) * cos(2.0 * PI * fj * T);
+        li = exp(-dj * T) * sin(2.0 * PI * fj * T);
+    };
+    rise = 1.0 - exp(-t / 0.003);
+    endf = clamp(0.0, 1.0, (0.65 - t) / 0.04);
+    structural = win(int(0.65 * ma.SR)) * 0.20 * body * gain * rise * rise * endf * endf * sum(j, 5, partial(j));
+
+    slen = int(0.025 * ma.SR);
+    ts = age / slen;
+    hp = g(4) : lp1(0.45) : fi.zero(1) : fi.pole(pole44(0.93));
+    scrape = win(slen) * 0.011 * tp * pow(v, 1.8) * hp * exp(-7.0 * ts) * (1.0 - exp(-40.0 * ts));
+
+    mc = g(5) : lp1(0.8) : lp1(0.8) : lp1(0.8);
+    treble = win(klen) * 11.0 * tk * gain * (1.0 - exp(-t / 0.0015)) * exp(-t / 0.004) * mc;
+
+    rel = (gate == 0) * (gate' > 0);
+    rage = (+(1) : *(1 - rel)) ~ _;
+    dlen = int(0.030 * ma.SR);
+    rt = rage / dlen;
+    rstarted = max(rel) ~ _;
+    dgain = 0.0035 * tp * (0.4 + 0.6 * v) * clamp(0.5, 1.4, pow(261.0 / f0, 0.3));
+    damper_noise = key_damper(m) * rstarted * (rage < dlen) * (gate == 0) * dgain
+                 * (g(6) : lp1(0.85)) * exp(-4.0 * rt) * (1.0 - exp(-25.0 * rt));
+};
+
+//==================================== Voice ===========================================
+// One key: note number m (fractional allowed), velocity vel in [0.02, 1],
+// gate. Output: the bridge force of the key (render_bridge_force units).
+voice(m, vel, gate) = voice_force(m, vel, gate) : !, _;
+
+// The same voice with the hammer force first (newtons): (F, bridge force).
+voice_force(m, vel, gate) = voice_drawn(m, vel, gate, r(0), r(1), r(2))
+with {
+    // Per-strike draws of the unison readout spread (prepare_readout),
+    // uniform in [-1, 1], held from the strike.
+    r(i) = no.multinoise(8) : ba.selector(i, 8) : ba.sAndH(gate > gate');
+};
+
+// The voice with given per-strike draws r0..r2 of the unison readout
+// (piano.hpp draws them from the strike's seed): (F, bridge force).
+voice_drawn(m, vel, gate, r0, r1, r2) = params : (core ~ _)
+with {
+    v = clamp(0.02, 1.0, vel);
+    trig = gate > gate';
+    // Damper position 0 (open) .. 1 (seated), moving over 40 ms; a strike lifts it.
+    target = key_damper(m) * (gate == 0) * damper_contact(pedal);
+    dmp = (\(d).(select2(trig, d + clamp(-st, st, target - d), 0.0))) ~ _
+    with { st = 1.0 / (0.040 * ma.SR); };
+    // The parameters, recomputed only when the note or the voicing changes:
+    // the note enters an ondemand domain as a held audio-rate signal, so the
+    // whole computation stays inside the domain's tick (faust-rs).
+    chg = (m != m') | (voicing_hash != voicing_hash');
+    params = voice_params_on(chg, m);
+    // Slot k takes its NSP parameters and u.
+    spread = route(1 + NPAR, (NSP + 1) * NS + NPAIR + 3,
+        par(o, (NSP + 1) * NS, (select2(o % (NSP + 1) == NSP, 1 + NSP * int(o / (NSP + 1)) + o % (NSP + 1), 0) + 1, o + 1)),
+        par(i, NPAIR + 2, (1 + NSP * NS + i + 1, (NSP + 1) * NS + i + 1)),
+        (1, (NSP + 1) * NS + NPAIR + 3));
+    sums = route(SLOT_OUT * NS, NSUM * NS, par(o, NSUM * NS, (SLOT_OUT * (o % NS) + int(o / NS) + 1, o + 1)))
+         : par(f, NSUM, gsum(NS, 32));
+    core = spread : (par(k, NS, slotbox(dmp, r0, r1, r2)), si.bus(NPAIR), _, _, _)
+         : (si.bus(SLOT_OUT * NS) <: (sums, si.bus(SLOT_OUT * NS))), si.bus(NPAIR), _, _, _
+         : _, _, _, (si.bus(SLOT_OUT * NS + NPAIR) : phantoms(m)), _, _, _
+         : \(ysf, ydf, br, ph, rs, rv, u).(hammer(m, v, ysf, ydf, rs, rv, u, trig),
+                                          br + ph + noises(m, v, gate, trig));
+};
+
+// Pedal position to the fraction of the seated damper's loss (damper_contact).
+damper_contact(pos) = select2(x > 0.0, 1.0, select2(x >= 1.0, s * s, 0.0))
+with {
+    x = (pos - 0.25) / (0.65 - 0.25);
+    s = 1.0 - smooth01(x);
+};
+
+// Excitation level after contact (tone_peak_amp), from the C++ solve:
+// log-linear in velocity between the grid points, at the nearest key.
+tone_peak(m, v) = pow(10.0, l0 + (jf - j0) * (l1 - l0))
+with {
+    nv = tb.tp_nv;
+    jf = clamp(0.0, nv - 1.0, log(v / 0.02) / log(50.0) * (nv - 1.0));
+    j0 = min(int(jf), nv - 2);
+    base = key_index(m) * nv;
+    l0 = tb.tp_log, base + j0 : rdtable;
+    l1 = tb.tp_log, base + j0 + 1 : rdtable;
+};
+
+// Note number of a frequency, rounded to a thousandth of a semitone so that
+// equal-tempered frequencies give integer keys exactly.
+freq2m(f) = floor((69.0 + 12.0 * log2(f / 440.0)) * 1000.0 + 0.5) / 1000.0;
+
+//==================================== Instrument body ===================================
+// Everything after the voices (instrument.hpp): the sympathetic string
+// register, the soundboard with its bridge regions, the room, the DC filter,
+// the output gain and the soft limiter. Voices hand over SOUNDBOARD_REGIONS
+// region forces plus one channel of sympathetic correction (voice_out).
+
+REGIONS = 4;
+first = 1 - (1 : mem);
+// Sum of n signals in groups of G behind an opaque barrier: the compiler's
+// normal form of a long sum costs the cube of its length (faust-rs,
+// measured 2026-10-15: 16 s for the soundboard's two 732-term sums, 1.6 s
+// grouped; faust-rs-issues/RAPPORT.md, point 3). gsum2 sums n interleaved
+// pairs into two.
+opaque(x) = max(x, -1.0e300);
+gsum(n, G) = si.bus(n), par(i, G * ngr - n, 0) : par(g, ngr, (si.bus(G) :> _) : opaque) :> _
+with { ngr = int((n + G - 1) / G); };
+gsum2(n, G) = ro.interleave(2, n) : gsum(n, G), gsum(n, G);
+
+// Held copy of a constant: an audio-rate signal, so that what depends on it
+// is computed inside the tick of an ondemand domain (see voice_drawn).
+held(chg, c) = ba.sAndH(chg, c);
+// f(x) computed only when chg fires, x held: a control-rate input would be
+// hoisted out of the domain to block rate (faust-rs-issues/RAPPORT.md,
+// point 6), an audio-rate held copy keeps the work inside the tick.
+on_change(chg, x, f) = (chg, ba.sAndH(chg, x)) : ondemand(f);
+
+//---------------------------------- Bridge regions -------------------------------------
+// A key's place on the bridge, 0 (A0) to 1 (C8), mixed into its two nearest
+// regions with a linear crossfade (Engine's key_region_).
+bridge_pos(m) = clamp(0.0, 1.0, (m - 21.0) / 87.0);
+region_gain(m, r) = select2(r == lower, 0.0, 1.0 - up) + select2(r == lower + 1, 0.0, up)
+with {
+    x = bridge_pos(m) * REGIONS - 0.5;
+    lower = floor(clamp(0.0, REGIONS - 1.0, x));
+    frac = clamp(0.0, 1.0, x - lower);
+    up = frac * (lower + 1 < REGIONS);
+};
+
+//---------------------------------- Sympathetic register --------------------------------
+// SympatheticResonance: per key, partials p <= 16 below 7 kHz, each a damped
+// rotation driven by the summed bridge force; a damper-free key is always
+// open, the others open as the sustain pedal lifts the dampers.
+res_params(m, p) = op, cl, cos(a), sin(a), drive, key_damper(m)
+with {
+    f0 = key_f0(m);
+    f = p * f0 * sqrt(1.0 + key_B(m) * p * p);
+    sigma = LN1000 / min(key_T60(m), r_maxdecay) + key_c2(m) * (f * f - f0 * f0);
+    op = exp(-sigma * T);
+    cl = exp(0.0 - max(sigma, LN1000 / r_damper) * T);
+    a = 2.0 * PI * f * T;
+    drive = (f <= 7000.0) * 2.0 * (1.0 - op) / (p * (1.0 + (f / 3500.0) * (f / 3500.0)));
+};
+// One resonator: x the drive force, od the openness of damped keys.
+resbox(x, od) = \(op, cl, cs, sn, dr, damped).(resmode(x, select2(damped, 1.0, od), op, cl, cs, sn, dr));
+resmode(x, o, op, cl, cs, sn, dr) = ((\(re, im).(radius_c * (cs * re - sn * im) + dr * o * x, radius_c * (sn * re + cs * im))) ~ (_, _) : _, !)
+with { radius_c = cl + o * (op - cl); };
+// Openness of the damped keys: lifted dampers (1 - damper_contact), moved
+// at 1/transition per second.
+res_open = (\(o).(o + clamp(-st, st, 1.0 - damper_contact(pedal) - o))) ~ _
+with { st = 1.0 / (r_transition * ma.SR); };
+res_chg = first | (r_maxdecay != r_maxdecay') | (r_damper != r_damper') | (voicing_hash != voicing_hash');
+// The bank's wet output for the drive x.
+// A key's resonators. A key with dampers only sounds while they are lifted or
+// for a second after they seat (its closed T60 is at most 2 s): its
+// resonators run in an ondemand domain clocked by that condition, so a
+// pedal-up instrument pays for the damper-free treble only.
+res_key_params(g) = on_change(res_chg, 21.0 + g, \(b).(par(p, ba.take(g + 1, tb.res_n), res_params(b, p + 1))));
+// The resonators of key g: inputs their parameters, the drive and the openness.
+res_key_dsp(g) = route(6 * n + 2, 8 * n, par(q, 8 * n, (src(q) + 1, q + 1)))
+    : par(p, n, \(op, cl, cs, sn, dr, damped, xx, od).(resmode(xx, select2(damped, 1.0, od), op, cl, cs, sn, dr)))
+    : gsum(n, 32)
+with {
+    n = ba.take(g + 1, tb.res_n);
+    src(q) = select2(q % 8 < 6, 6 * n + q % 8 - 6, 6 * int(q / 8) + q % 8);
+};
+res_awake(o) = (o > 0.0) | (quiet < ma.SR * r_damper * 6.0)
+with { quiet = (+(1) : *(o <= 0.0)) ~ _; };
+// The bank's wet output for the drive x. A sleeping key misses voicing
+// changes, so its parameters are also recomputed when it wakes up; only the
+// clock, the change pulse, the drive and the openness enter its domain.
+res_key(g, chg, x, o) = (on_change(chg, 21.0 + g, \(b).(par(p, ba.take(g + 1, tb.res_n), res_params(b, p + 1)))), x, o)
+    : res_key_dsp(g);
+res_bank(x) = (par(g, nd, damped(g)), par(g, 88 - nd, res_key(nd + g, res_chg, x, res_open))) : gsum(88, 8)
+with {
+    nd = tb.res_first_undamped;
+    on = res_awake(res_open);
+    wake = on * (1 - on');
+    damped(g) = (on, res_chg | wake, x, res_open) : ondemand(res_key(g)) : *(on);
+};
+
+// A key's own resonators driven by its own force: what own_drive < 1
+// withholds. The voice subtracts (1 - own_drive) of their response, so the
+// summed bank answers a key only through the rest of the instrument.
+res_own(m, x) = sum(p, 16, res_params(m, p + 1) : resbox(x, res_open));
+
+//---------------------------------- Soundboard -----------------------------------------
+// Modal soundboard fitted to Engine's region responses (coopiano_tables.lib):
+// a mode is a complex one-pole s = lambda s + u whose drive u = sum_r A_r x_r
+// carries the complex amplitude of each region (the bridge regions'
+// imaging, make_soundboard_regions, at spread 0.7 and position_depth 0.5,
+// fitted head and tail together); the output is Im(s), per channel.
+// A mode's parameters: lambda, then Re/Im of A_r for r = 0..3, left then right.
+NBP = 2 + 4 * REGIONS;
+board_params(b, k) = lr, li, par(c, 2, par(r, REGIONS, amp(c, r)))
+with {
+    i = int(b) + k;
+    rd(t) = t, i : rdtable;
+    f = rd(tb.board_f);
+    sig = rd(tb.board_sig);
+    lr = exp(-sig * T) * cos(2.0 * PI * f * T);
+    li = exp(-sig * T) * sin(2.0 * PI * f * T);
+    amp(0, 0) = rd(tb.board_r0L_re), rd(tb.board_r0L_im);
+    amp(0, 1) = rd(tb.board_r1L_re), rd(tb.board_r1L_im);
+    amp(0, 2) = rd(tb.board_r2L_re), rd(tb.board_r2L_im);
+    amp(0, 3) = rd(tb.board_r3L_re), rd(tb.board_r3L_im);
+    amp(1, 0) = rd(tb.board_r0R_re), rd(tb.board_r0R_im);
+    amp(1, 1) = rd(tb.board_r1R_re), rd(tb.board_r1R_im);
+    amp(1, 2) = rd(tb.board_r2R_re), rd(tb.board_r2R_im);
+    amp(1, 3) = rd(tb.board_r3R_re), rd(tb.board_r3R_im);
+};
+// One mode: inputs its NBP parameters then the REGIONS forces; outputs L, R.
+boardbox = \(bl, bi, a0r, a0i, a1r, a1i, a2r, a2i, a3r, a3i, b0r, b0i, b1r, b1i, b2r, b2i, b3r, b3i, x0, x1, x2, x3).(
+    cmode(bl, bi, a0r * x0 + a1r * x1 + a2r * x2 + a3r * x3, a0i * x0 + a1i * x1 + a2i * x2 + a3i * x3),
+    cmode(bl, bi, b0r * x0 + b1r * x1 + b2r * x2 + b3r * x3, b0i * x0 + b1i * x1 + b2i * x2 + b3i * x3));
+// A mode with a complex drive (ur, ui); outputs Im(s).
+cmode(br_, bi_, ur, ui) = (\(sr, sj).(br_ * sr - bi_ * sj + ur, bi_ * sr + br_ * sj + ui)) ~ (_, _) : !, _;
+// A soundboard mode: s[n] = lambda s[n-1] + x[n], impulse response lambda^n.
+bmode(br_, bi_, x) = (\(ur, ui).(br_ * ur - bi_ * ui + x, bi_ * ur + br_ * ui)) ~ (_, _);
+// The modes' parameters, in ondemand domains of BG modes computed once.
+BG = 61;
+board_chunks(chg, f) = par(c, ngr, on_change(chg, 0.0, \(b).(par(i, min(BG, tb.nb - c * BG), f(b, c * BG + i)))))
+with { ngr = int((tb.nb + BG - 1) / BG); };
+soundboard = board_chunks(first, board_params), si.bus(REGIONS)
+    : route(NBP * tb.nb + REGIONS, (NBP + REGIONS) * tb.nb,
+            par(o, (NBP + REGIONS) * tb.nb, (src(o) + 1, o + 1)))
+    : par(k, tb.nb, boardbox) : gsum2(tb.nb, 32)
+with {
+    src(o) = select2(e < NBP, NBP * tb.nb + e - NBP, NBP * int(o / (NBP + REGIONS)) + e)
+    with { e = o % (NBP + REGIONS); };
+};
+
+// The same board without imaging (spread = position_depth = 0): every mode
+// sees the summed force, so one resonator serves both channels, which
+// differ only by their complex amplitude: about a third of the cost.
+mono_params(b, k) = lr, li, rd(tb.board_alr), rd(tb.board_ali), rd(tb.board_arr), rd(tb.board_ari)
+with {
+    i = int(b) + k;
+    rd(t) = t, i : rdtable;
+    lr = exp(0.0 - rd(tb.board_sig) * T) * cos(2.0 * PI * rd(tb.board_f) * T);
+    li = exp(0.0 - rd(tb.board_sig) * T) * sin(2.0 * PI * rd(tb.board_f) * T);
+};
+monobox = \(bl, bi, alr, ali, arr, ari, x).(bmode(bl, bi, x) <: (\(ur, ui).(alr * ui + ali * ur)), (\(ur, ui).(arr * ui + ari * ur)));
+soundboard_mono = board_chunks(first, mono_params), (si.bus(REGIONS) :> _)
+    : route(6 * tb.nb + 1, 7 * tb.nb, par(o, 7 * tb.nb, (select2(o % 7 == 6, 6 * int(o / 7) + o % 7, 6 * tb.nb) + 1, o + 1)))
+    : par(k, tb.nb, monobox) : gsum2(tb.nb, 32);
+
+//---------------------------------- Room -------------------------------------------------
+// reverb.hpp's StereoReverb: high-passed (150 Hz) and predelayed input, early
+// reflections from six taps, two diffusion allpasses per side, eight lines
+// with a normalised Walsh-Hadamard feedback, each damped by a one-pole.
+room(l, r) = l + v_mix * (0.45 * el + 0.70 * norm * ll), r + v_mix * (0.45 * er + 0.70 * norm * lr)
+with {
+    norm = 0.3535533905932737622;
+    sc(n) = max(1, int(n * ma.SR / 44100.0 + 0.5));
+    hp(x) = x : fi.zero(1) : fi.pole(exp(-2.0 * PI * 150.0 / ma.SR));
+    pre(x) = x : de.delay(8192, int(v_predelay * ma.SR / 1000.0 + 0.5));
+    il = pre(hp(l));
+    ir = pre(hp(r));
+    tap(ms) = max(1, int(ms * ma.SR / 1000.0 + 0.5));
+    el = 0.55 * il @ tap(7) + 0.30 * ir @ tap(17) - 0.15 * il @ tap(29);
+    er = 0.55 * ir @ tap(11) + 0.30 * il @ tap(23) - 0.15 * ir @ tap(31);
+    ap(n, x) = (\(b).(0.64 * x + 0.6 * b @ (n - 1))) ~ _ : \(b).(b @ n - 0.6 * x);
+    dl = ap(sc(337), ap(sc(191), il));
+    dr = ap(sc(373), ap(sc(211), ir));
+    len(i) = sc(ba.take(i + 1, (1493, 1601, 1747, 1867, 1999, 2131, 2281, 2423)));
+    fb(i) = pow(10.0, -3.0 * len(i) / (ma.SR * v_decay));
+    lp = exp(-2.0 * PI * v_damping / ma.SR);
+    inr(i) = ba.take(i + 1, (1, 1, 1, 1, -1, -1, -1, -1));
+    ol(i) = ba.take(i + 1, (1, 1, -1, -1, 1, 1, -1, -1));
+    orr(i) = ba.take(i + 1, (1, -1, 1, -1, 1, -1, 1, -1));
+    // Walsh-Hadamard butterflies of widths 1, 2, 4 (unnormalised), as in reverb.hpp.
+    wht = \(a0, a1, a2, a3, a4, a5, a6, a7).(a0 + a1, a0 - a1, a2 + a3, a2 - a3, a4 + a5, a4 - a5, a6 + a7, a6 - a7)
+        : \(a0, a1, a2, a3, a4, a5, a6, a7).(a0 + a2, a1 + a3, a0 - a2, a1 - a3, a4 + a6, a5 + a7, a4 - a6, a5 - a7)
+        : \(a0, a1, a2, a3, a4, a5, a6, a7).(a0 + a4, a1 + a5, a2 + a6, a3 + a7, a0 - a4, a1 - a5, a2 - a6, a3 - a7);
+    body = \(d0, d1, d2, d3, d4, d5, d6, d7).(
+        (d0, d1, d2, d3, d4, d5, d6, d7 : par(i, 8, filt) : wht : par(i, 8, *(fb(i))) : par(i, 8, +(dl + inr(i) * dr)) : par(i, 8, *(norm))),
+        sum(i, 8, ol(i) * ba.take(i + 1, (d0, d1, d2, d3, d4, d5, d6, d7))),
+        sum(i, 8, orr(i) * ba.take(i + 1, (d0, d1, d2, d3, d4, d5, d6, d7))));
+    filt(x) = x * (1.0 - lp) : fi.pole(lp);
+    lines = body ~ par(i, 8, @(len(i) - 1)) : si.block(8), _, _;
+    ll = lines : _, !;
+    lr = lines : !, _;
+};
+
+//---------------------------------- Output ----------------------------------------------
+dc_block = fi.zero(1) : fi.pole(1.0 - 2.0 * PI * 20.0 / ma.SR);
+limit(x) = select2(a <= 0.8, ma.signum(x) * (0.8 + 0.2 * ma.tanh((a - 0.8) / 0.2)), x)
+with { a = abs(x); };
+
+// A voice for the instrument: REGIONS region forces, then the sympathetic
+// correction of its own key (to be spread over the regions by the body).
+voice_out(m, vel, gate) = voice(m, vel, gate) : regions_out(m);
+// The same with given per-strike draws (voice_drawn), for comparisons.
+voice_out_drawn(m, vel, gate, r0, r1, r2) = voice_drawn(m, vel, gate, r0, r1, r2) : !, regions_out(m);
+regions_out(m) = _ <: (par(r, REGIONS, *(region_gain(m, r))), (res_own(m) : *((r_own - 1.0) * r_gain)));
+
+// The body: REGIONS region forces and the summed sympathetic correction in,
+// stereo out (instrument.hpp's render_force tail, convolve_span, finish_block
+// and the output stage).
+body(x0, x1, x2, x3, c) = body_with(soundboard, x0, x1, x2, x3, c);
+// The same body with the soundboard without imaging (soundboard_mono): the
+// regions are summed, about half the cost of the instrument's body.
+body_light(x0, x1, x2, x3, c) = body_with(soundboard_mono, x0, x1, x2, x3, c);
+body_with(board, x0, x1, x2, x3, c) = (x0 + w, x1 + w, x2 + w, x3 + w) : board : dc_block, dc_block : room
+    : *(out_gain), *(out_gain) : limit, limit
+with {
+    w = (r_gain * res_bank(x0 + x1 + x2 + x3) + c) / REGIONS;
+};

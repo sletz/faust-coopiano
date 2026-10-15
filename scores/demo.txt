@@ -1,0 +1,18 @@
+# A short demo: arpeggio at rising velocity, a pedalled chord, staccato
+# treble and a fortissimo bass octave.
+note 0.00 60 0.25 0.6
+note 0.30 64 0.35 0.6
+note 0.60 67 0.45 0.6
+note 0.90 72 0.55 0.9
+pedal 2.00 1
+note 2.00 48 0.6 1.5
+note 2.00 55 0.5 1.5
+note 2.00 64 0.5 1.5
+note 2.00 72 0.6 1.5
+pedal 4.50 0
+note 5.00 84 0.5 0.12
+note 5.25 86 0.5 0.12
+note 5.50 88 0.5 0.12
+note 5.75 91 0.6 0.12
+note 6.50 24 0.95 2.0
+note 6.50 36 0.95 2.0
