@@ -1,6 +1,7 @@
 """Compare the Faust voice (dsp/coopiano_note.dsp) with render_bridge_force.
 
-For every reference note written by ref/dump.cpp (build/ref/note_*.f64), the
+For every reference note written by ref/dump.cpp (build/ref/note_*.f64, or the
+88 keys of `dump build/ref_keys keys` with --ref build/ref_keys), the
 same key, velocity and hold are rendered by faustprobe and compared on
 measures that do not depend on the random draws of either model: level in
 time windows, third-octave spectra early and late in the note, and the decay
@@ -13,7 +14,7 @@ import numpy as np
 FS = 44100
 FAUSTPROBE = os.environ.get("FAUSTPROBE", os.path.join(os.path.dirname(__file__), "../../faust-rs/target/release/faustprobe"))
 
-DRAWS = {int(r[0]): r[1:] for r in np.loadtxt("build/ref/draws.txt", ndmin=2)}
+DRAWS = {}
 
 def render(midi, vel, hold, n, extra=(), seed=1):
     ns = 1 if midi < 31 else 2 if midi < 41 else 3
@@ -50,8 +51,12 @@ def main():
     ap.add_argument("--tol", type=float, default=3.0)
     ap.add_argument("--only", default="")
     ap.add_argument("--jobs", type=int, default=1)
+    ap.add_argument("--ref", default="build/ref")
     args = ap.parse_args()
-    files = sorted(glob.glob("build/ref/note_*.f64"), key=lambda p: [float(x) for x in os.path.basename(p)[5:-4].split("_")])
+    DRAWS.update({int(r[0]): r[1:] for r in np.loadtxt(os.path.join(args.ref, "draws.txt"), ndmin=2)})
+    files = sorted(glob.glob(os.path.join(args.ref, "note_*.f64")), key=lambda p: [float(x) for x in os.path.basename(p)[5:-4].split("_")])
+    # build/notes is what scripts/figures.py reads: only the default set goes there
+    saved = "build/notes" if os.path.normpath(args.ref) == "build/ref" else "build/notes_" + os.path.basename(os.path.normpath(args.ref))
     worst = 0
     edges = [(0, 0.05), (0.05, 0.3), (0.3, 1.0), (1.0, 2.0), (2.0, 3.0)]
     print("note  vel  hold | level dB faust-C++ in windows 0-50ms 50-300ms 0.3-1s 1-2s 2-3s | spectrum 0-0.3s / 1-2s: rms dB diff over bands")
@@ -64,9 +69,9 @@ def main():
     # every render compiles the voice: run them side by side
     with concurrent.futures.ThreadPoolExecutor(max_workers=args.jobs) as ex:
         renders = list(ex.map(lambda j: render(int(j[1]), j[2], j[3], np.fromfile(j[0]).size), jobs))
-    os.makedirs("build/notes", exist_ok=True)
+    os.makedirs(saved, exist_ok=True)
     for (path, midi, vel, hold), y in zip(jobs, renders):
-        np.save("build/notes/" + os.path.basename(path)[:-4] + ".npy", y)  # for scripts/figures.py
+        np.save(os.path.join(saved, os.path.basename(path)[:-4] + ".npy"), y)
         ref = np.fromfile(path)
         dur = ref.size / FS
         e = [w for w in edges if w[1] <= dur + 1e-9]

@@ -4,10 +4,12 @@
 #   make ref         build ref/dump.cpp against coopiano's headers and extract the
 #                    reference tables and renders into build/ref (about 20 s)
 #   make tables      dsp/coopiano_tables.lib from build/ref (soundboard fit included)
-#   make check       compile every program with faustprobe
+#   make check       compile every program with faustprobe, and run the instrument
+#                    polyphonically with its body (`effect`)
 #   make doctests    compile every `#### Test` of dsp/coopiano.lib (~10 min)
 #   make contact     hammer contact of the Faust voice against prep_note
 #   make notes       the Faust voice against render_bridge_force, key by key
+#   make keyboard    the same for every key A0-C8 (88 renders of each model, ~5 min)
 #   make engine      one key through the whole instrument against coopiano's Engine
 #   make test        contact + notes + engine
 #   make render [SCORE=scores/demo.txt] [VOICES=16] [LIGHT=1]
@@ -17,6 +19,8 @@
 #   make results     run every comparison and the cost measure, write results/*.txt (~30 min)
 #   make paper       the article, paper/faust-coopiano.pdf (pdflatex + bibtex)
 #   make clean       remove build/
+#   JOBS=n           renders run side by side by contact, notes and keyboard (default 4;
+#                    a faust-rs compilation of the voice peaks at about 3 GB)
 #
 # COOPIANO points to the coopiano checkout (piano.hpp, instrument.hpp);
 # FAUST_RS to a faust-rs checkout with release faust-rs and faustprobe built.
@@ -34,9 +38,11 @@ LIGHT ?=
 BODY_DSP = $(if $(LIGHT),dsp/coopiano_body_light.dsp,dsp/coopiano_body.dsp)
 RENDER_DIR = build/$(if $(LIGHT),light,full)
 VOICES ?= 16
+JOBS ?= 4
+export JOBS
 NATIVE ?= -O3 -ffast-math -march=native
 
-.PHONY: help ref tables check doctests contact notes engine test render results figures paper clean
+.PHONY: help ref tables check doctests contact notes keyboard engine test render results figures paper clean
 help:
 	@sed -n '1,/^$$/p' Makefile | sed 's/^# \{0,1\}//'
 
@@ -54,6 +60,8 @@ tables:
 check:
 	@for f in dsp/coopiano_note.dsp dsp/coopiano_hammer.dsp dsp/coopiano_voice_out.dsp dsp/coopiano_body.dsp dsp/coopiano_body_light.dsp dsp/coopiano.dsp dsp/coopiano_light.dsp; do \
 	  $(FAUSTPROBE) --double -I dsp -n 1 --in zero --quiet $$f > /dev/null && echo "ok   $$f" || { echo "FAIL $$f"; exit 1; }; done
+	@$(FAUSTPROBE) --double -I dsp --nvoices 2 --note 60:100@0 --note 64:90@2205 -n 4410 --quiet dsp/coopiano.dsp > /dev/null \
+	  && echo "ok   dsp/coopiano.dsp, 2 voices through the body" || { echo "FAIL dsp/coopiano.dsp, 2 voices through the body"; exit 1; }
 
 doctests:
 	@mkdir -p build
@@ -63,7 +71,14 @@ contact:
 	$(PYTHON) scripts/compare_contact.py
 
 notes:
-	$(PYTHON) scripts/compare_notes.py
+	$(PYTHON) scripts/compare_notes.py --jobs $(JOBS)
+
+build/ref_keys/draws.txt: build/dump
+	@mkdir -p build/ref_keys
+	./build/dump build/ref_keys keys
+
+keyboard: build/ref_keys/draws.txt
+	$(PYTHON) scripts/compare_notes.py --ref build/ref_keys --jobs $(JOBS)
 
 test: contact notes engine
 
@@ -85,10 +100,11 @@ $(RENDER_DIR)/render: tools/render.cpp $(RENDER_DIR)/coopiano_voice.cpp $(RENDER
 render: $(RENDER_DIR)/render
 	$(RENDER_DIR)/render $(SCORE) build/$(basename $(notdir $(SCORE)))$(if $(LIGHT),_light).wav $(VOICES)
 
-results:
+results: build/ref_keys/draws.txt
 	@mkdir -p results
 	$(PYTHON) scripts/compare_contact.py | tee results/contact.txt
-	$(PYTHON) scripts/compare_notes.py | tee results/notes.txt
+	$(PYTHON) scripts/compare_notes.py --jobs $(JOBS) | tee results/notes.txt
+	$(PYTHON) scripts/compare_notes.py --ref build/ref_keys --jobs $(JOBS) | tee results/keyboard.txt
 	$(PYTHON) scripts/compare_engine.py | tee results/engine.txt
 	$(PYTHON) scripts/board_fit_report.py | tee results/board.txt
 	./scripts/cost.sh | tee results/cost.txt

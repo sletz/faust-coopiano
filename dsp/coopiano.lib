@@ -1337,8 +1337,10 @@ with {
 // Internal: the parameters of a voice, computed in `ondemand` domains when the
 // note or the voicing changes, and the audio-rate boxes that use them. The voice
 // is written as dataflow (each slot a box evaluated once, its signals routed to the
-// sums and the phantom pairs) because faust-rs re-evaluates a function called in a
-// lambda at every application (faust-rs-issues/RAPPORT.md, point 1).
+// sums and the phantom pairs). That was the way around faust-rs re-evaluating a
+// function called in a lambda at every application (faust-rs-issues/RAPPORT.md,
+// point 1), which faust-rs no longer does since 2026-10-16; the dataflow form is
+// kept, checked and as quick to compile.
 //========================================================================================
 
 // One polarization `P` (0 vertical/prompt, 1 horizontal/slow) of slot `k`:
@@ -1446,8 +1448,9 @@ with {
 
 // Phantom partials at the audio rate: each pair reads the states of its two
 // slots, the readout of the first and its coefficient. `_cre` is Re(a b)
-// written without squares (`x*x` would become a pow call, point 4 of the
-// faust-rs report). Only keys below G#3 have phantoms: the pairs run in an
+// written without squares: `x*x` became a pow call before faust-rs 2026-10-16
+// (point 4 of the faust-rs report); the form is kept, it costs no more. Only
+// keys below G#3 have phantoms: the pairs run in an
 // ondemand domain clocked by that condition, and a stopped domain's held
 // output is masked.
 _phantom_route = route(_SLOT_OUT * NS + _NPAIR, 10 * _NPAIR, par(q, 10 * _NPAIR, (src(q) + 1, q + 1)))
@@ -1794,10 +1797,11 @@ _first = 1 - (1 : mem);
 _opaque(x) = max(x, -1.0e300);
 
 //-------------------------------------`(cp.)gsum`--------------------------------------
-// Sum of `N` signals in groups of `G`, each group behind an opaque barrier. The
-// compiler's normal form of a long sum costs the cube of its length (faust-rs:
-// 16 s for two 732-term sums, 1.6 s grouped by 32; faust-rs-issues/RAPPORT.md,
-// point 3). `N` and `G` are constant numerical expressions.
+// Sum of `N` signals in groups of `G`, each group behind an opaque barrier.
+// faust-rs normalizes a long sum in a time quadratic in its length (cubic until
+// 2026-10-16: 16 s for the soundboard's two 732-term sums; faust-rs-issues/
+// RAPPORT.md, point 3); grouping by 32 still saves about 0.5 s of the body's 5 s
+// compilation. `N` and `G` are constant numerical expressions.
 //
 // #### Usage
 //

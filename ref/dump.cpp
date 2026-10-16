@@ -220,6 +220,20 @@ static void dump_notes() {
     }
 }
 
+// Every key of the keyboard, A0 to C8, at one velocity and held 2 s: the
+// full-range check of the voice (make keyboard).
+static void dump_keyboard() {
+    const double vel = 0.5, hold = 2.0, dur = 2.0;
+    for (int midi = 21; midi <= 108; ++midi) {
+        Key key = make_key(midi);
+        std::vector<double> buf((size_t)(dur * FS), 0.0);
+        render_bridge_force(key, vel, (int64_t)(hold * FS), buf, 0, 1);
+        char name[64];
+        std::snprintf(name, sizeof name, "note_%d_%.2f_%.2f.f64", midi, vel, hold);
+        write_f64(name, buf);
+    }
+}
+
 // The whole instrument through its block interface, one note held then
 // released. Output before the engine's output gain and limiter is not
 // exposed, so this is the float output divided by the gain.
@@ -243,7 +257,7 @@ static void dump_engine(bool reverb) {
 }
 
 int main(int argc, char** argv) {
-    if (argc < 2) { std::fprintf(stderr, "usage: dump OUTDIR [all|tables|notes|engine]\n"); return 1; }
+    if (argc < 2) { std::fprintf(stderr, "usage: dump OUTDIR [all|tables|notes|engine|keys]\n"); return 1; }
     dir = argv[1];
     std::string what = argc > 2 ? argv[2] : "all";
     if (what == "all" || what == "tables") { dump_admittance(); dump_keys(); dump_board(); dump_strikes(); }
@@ -251,5 +265,6 @@ int main(int argc, char** argv) {
     if (what == "all" || what == "resonance") dump_resonance();
     if (what == "all" || what == "notes") { dump_draws(); dump_notes(); }
     if (what == "all" || what == "engine") { dump_engine(false); dump_engine(true); }
+    if (what == "keys") { dump_draws(); dump_keyboard(); }  // not in "all": 88 renders
     return 0;
 }

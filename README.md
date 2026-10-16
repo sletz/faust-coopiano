@@ -30,14 +30,17 @@ make ref        # build ref/dump.cpp against ../../coopiano, extract build/ref (
 make tables     # dsp/coopiano_tables.lib (soundboard fit, ~1 min)
 make check      # every program compiles under faustprobe
 make test       # contact, notes and engine comparisons (exit 1 beyond tolerance)
+make keyboard   # the voice against the C++ on every key A0-C8 (~5 min)
 make render     # native render of scores/demo.txt to build/demo.wav (LIGHT=1: light body)
 make results    # every comparison and the cost measure into results/*.txt (~30 min)
 make paper      # figures and the article, paper/faust-coopiano.pdf
 ```
 
 `COOPIANO` and `FAUST_RS` point to the two checkouts (defaults `../../coopiano`
-and `../faust-rs`, release `faust-rs` and `faustprobe` built). Compiling the voice
-takes about 25 s and the body about 45 s with faust-rs (see *faust-rs* below).
+and `../faust-rs`, release `faust-rs` and `faustprobe` built). With faust-rs
+`main-dev` of 2026-10-16, compiling the voice takes about 8 s and the body about
+5 s (25 s and 45 s the day before; see *faust-rs* below). `JOBS` (default 4) sets
+how many renders `make contact`, `notes` and `keyboard` run side by side.
 
 ## How the model streams what the C++ prepares
 
@@ -84,6 +87,7 @@ a bank of decaying phasors). The Faust voice is a streaming equivalent:
 |---|---|
 | Hammer contact, 8 keys x 4 velocities (`make contact`) | peak force within 1 % and contact time within 1-4 % (one sample), except C8 at velocity 1: -14 % peak, an 11-sample contact |
 | Bridge force, 12 notes A0-C8 (`make notes`) | level within 0.1 dB from 50 ms on, 0.3 dB over the first 50 ms; third-octave spectra within 0.6 dB rms |
+| Bridge force, all 88 keys at velocity 0.5 (`make keyboard`, `results/keyboard.txt`) | level within 0.4 dB over the first 50 ms and 0.1 dB from 50 ms to 1 s; 1-2 s within 0.7 dB (the top octave's tails, 50-65 dB down); early spectra within 0.9 dB rms; late spectra within 1 dB rms except D7-E7 (up to 5.7 dB, a weak partial of a tail 58 dB down) |
 | Release | decay follows the C++ to 0.4 dB down to -82 dB |
 | Sympathetic bank on the C++ force | identical to 1e-12 (-248 dB) |
 | Soundboard fit | -25.5 dB (shared response), -22.8 to -25.7 dB (regions); frequency response within 0.1 dB median, under 0.7 dB for 90 % of frequencies |
@@ -117,20 +121,27 @@ a bank of decaying phasors). The Faust voice is a streaming equivalent:
 
 ## faust-rs
 
-This model met several faust-rs limits, worked around here and worth fixing there:
+This model met several faust-rs limits, worked around here and reported in
+[`faust-rs-issues/RAPPORT.md`](faust-rs-issues/RAPPORT.md) (French: a minimal
+reproducer, the cause in the faust-rs code and a possible fix for each). Most
+were fixed in faust-rs `main-dev` on 2026-10-16; the report's first section gives
+the commits and the measures. Fixed:
 
-- the box evaluator has no memo of function application, so a call inside a lambda
-  body is re-evaluated at each application, exponentially in the nesting depth (the
-  voice cost ~1 s of evaluation per slot and peaks at 17 GB), hence the box-dataflow
-  style of the voice;
-- `fir-prepare-normalize` grows as the cube of a sum's length (16 s for the
-  soundboard's two 732-term sums, 1.6 s summed in groups of 32 behind `opaque`);
-- `-vec` on the voice does not finish in 20 minutes (vector planning in O(L^4));
-- a sequential-composition arity error is reported at a hash-consed `_` of an
-  unrelated definition;
-- `rad` and `fad` are reserved words (the parse error does not say so), and
-  `-max(...)`/`-sin(...)` do not parse;
-- `faustprobe --nvoices` panics when `effect` changes the channel count.
+- function application is memoized in the evaluator (C++ `gApplyMemo`): a call in a
+  lambda body is no longer re-evaluated at each application, and the voice's
+  compilation went from 41 s and 17 GB to 7 s and 2.8 GB. The voice keeps its
+  dataflow style, written to avoid this;
+- long sums, isomorphic recursion groups, the recursive type fixpoint and the clock
+  fixpoint no longer cost the number of recursion groups times the graph: the body
+  compiles in 5 s instead of 45 s, and the voice and the body as one program in 13 s
+  instead of 363 s. `gsum` still saves 0.5 s on the body and is kept;
+- `x*x` (normalized to `pow(x, 2)`) is a product on every backend, no longer a
+  library call; the phantoms' square-free formula is kept;
+- `faustprobe --nvoices` runs the instrument with its body as `effect` (`make check`);
+- the diagnostics now name the reserved words (`rad`, `fad`, which stay reserved),
+  explain `-max(...)` and `-L.g(...)`, and locate an arity error at the faulty
+  composition.
 
-[`faust-rs-issues/RAPPORT.md`](faust-rs-issues/RAPPORT.md) (French) details each of
-them with a minimal reproducer, the cause in the faust-rs code and a possible fix.
+Still open: `-vec` on the voice does not finish (vector planning in O(L^4) over
+31,825 loops), and block-rate work leaves an `ondemand` domain unless its input
+is held at the audio rate, hence `on_change`.

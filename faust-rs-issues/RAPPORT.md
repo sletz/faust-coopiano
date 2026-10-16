@@ -37,7 +37,38 @@ points clés ont été vérifiés directement sur les sources :
 - `emit_pow` ;
 - les jetons du lexer.
 
-Aucune correction n'a été appliquée à faust-rs.
+Aucune correction n'a été appliquée à faust-rs au moment de ce rapport ; la
+section suivante dit où chaque point en est depuis.
+
+## État au 16 octobre 2026 au soir
+
+faust-rs `main-dev` à `354e2080`, binaires release, même machine. Le corps du
+rapport ci-dessous est conservé tel qu'écrit le matin ; ses numéros de ligne sont
+ceux de `bf65d311`.
+
+| # | État | Commits faust-rs | Mesure aujourd'hui |
+|---|---|---|---|
+| 1 | corrigé | `d8543508` (port de `gApplyMemo`), `13040c09`, `3e1ddd5c` | `r01` : linéaire en D ; 0,06 à 0,1 ms d'évaluation pour les quatre formes jusqu'à D = 14, au lieu de 70 ms pour la forme lambda |
+| 2 | corrigé pour l'essentiel | les mêmes | voix (`coopiano_hammer.dsp`) : 7,4 s et 2,8 Go au pic, au lieu de 41 s et 17,35 Go ; trois compilations simultanées : 8,4 s chacune, 0,25 s de temps système, au lieu de 216 s et 126 s |
+| 3 | A corrigé, B rejeté | `50e32677` | `r02`, une somme de 1 024 termes : 2,94 s → 0,25 s, désormais quadratique (chaque somme partielle ré-aplatit ses k termes, comme en C++) ; groupée par 32 : 0,05 s. Sur le corps, `gsum` fait encore gagner 0,5 s (4,5 s groupé, 5,0 s sans). B, sauter le second `simplify`, changerait le code de 151 programmes du corpus : écarté |
+| 4 | corrigé | `06ad235a` (DIFF-BEH-022) | `r09a` : aucun `powf`, 133× le temps réel au lieu de 29× (`r09b` : 129×) ; le produit est écrit en ligne sur tous les backends, valeurs identiques au helper `faustpower` du C++ |
+| 5 | corrigé | `1c43f0cc`, `ad118420` | `r10b` passe ; l'instrument complet tourne sous `faustprobe --nvoices` avec son corps en `effect` (5 → 2 canaux), et `make check` le vérifie |
+| 6 | ouvert | — | `r13a` : les 15 `exp` sont toujours hissés avant la boucle ; le contournement `on_change` reste nécessaire |
+| 7 | diagnostic corrigé ; mots réservés conservés | `354e2080` | l'erreur nomme le mot réservé et propose `rad_` ; rendre ces mots contextuels a été écarté par décision |
+| 8 | corrigé | `354e2080` | `-max(…)` et `-sin(…)` expliquent la règle et proposent `0 - …` ; `-L.g(…)` est localisé sur le `-` et expliqué |
+| 9 | corrigé | `354e2080` | `r08` et `r08b` pointent le `:` fautif de la ligne 4 (l'évaluateur garde la composition source de chaque composition qu'il construit) |
+| 10 | corrigé | `8e0e2933`, `4bb36491`, `8cb6431d` | `voice_out_drawn(…) : body` en un seul programme : 13,3 s au lieu de 363 s ; voix seule 7,4 s et corps seul 4,5 s, au lieu de 25 et 45 s |
+| 11 | non reproduit | — | la voix qui l'a provoqué n'existe plus sous cette forme ; à réessayer si une grande fonction `compute` échoue de nouveau |
+| 12 | ouvert | — | voix en `-vec -vs 32` : 31 825 boucles et 95 060 arêtes de données ; délai de 180 s dépassé, 7 Go ; la correction proposée (chaînage par ressource) reste valable |
+| 13 | corrigé | `d8543508` | MEMOIZATION §2.4c et §3.7 décrivent désormais `gApplyMemo` |
+
+Les causes du point 10 n'étaient pas celle supposée seule : trois coûts « par
+groupe de récursion × graphe atteignable » se cumulaient dans
+`fir-prepare-normalize` (fusion des récursions isomorphes, puis invalidation du
+point fixe de typage, cinq fois par compilation) et dans `fir-clock-analysis` (une
+mémoire neuve par groupe à chaque tour du point fixe d'horloge). Chacun est
+remplacé par une version exacte, au code généré identique sur tout le corpus de
+faust-rs.
 
 ## Synthèse
 

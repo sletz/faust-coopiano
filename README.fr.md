@@ -30,14 +30,17 @@ make ref        # compile ref/dump.cpp contre ../../coopiano, extrait build/ref 
 make tables     # dsp/coopiano_tables.lib (ajustement de la table, ~1 min)
 make check      # chaque programme compile sous faustprobe
 make test       # comparaisons contact, notes et moteur (code 1 au-delà des tolérances)
+make keyboard   # la voix contre le C++ sur chaque touche, de la 0 à do 8 (~5 min)
 make render     # rendu natif de scores/demo.txt dans build/demo.wav (LIGHT=1 : corps léger)
 make results    # toutes les comparaisons et la mesure de coût dans results/*.txt (~30 min)
 make paper      # les figures et l'article, paper/faust-coopiano.pdf
 ```
 
 `COOPIANO` et `FAUST_RS` désignent les deux dépôts (par défaut `../../coopiano`
-et `../faust-rs`, avec `faust-rs` et `faustprobe` compilés en release). La voix
-compile en 25 s environ et le corps en 45 s avec faust-rs (voir *faust-rs*).
+et `../faust-rs`, avec `faust-rs` et `faustprobe` compilés en release). Avec le
+faust-rs `main-dev` du 16 octobre 2026, la voix compile en 8 s environ et le corps
+en 5 s (25 s et 45 s la veille ; voir *faust-rs*). `JOBS` (4 par défaut) fixe le
+nombre de rendus que `make contact`, `notes` et `keyboard` lancent en parallèle.
 
 ## Ce que le modèle calcule au fil de l'eau
 
@@ -89,6 +92,7 @@ puis un banc de phaseurs amortis). La voix Faust en est l'équivalent en flux :
 |---|---|
 | Contact du marteau, 8 touches x 4 vélocités (`make contact`) | force crête à 1 % et durée de contact à 1-4 % (un échantillon), sauf do 8 à vélocité 1 : -14 % de crête, contact de 11 échantillons |
 | Force au chevalet, 12 notes de la 0 à do 8 (`make notes`) | niveau à 0,1 dB à partir de 50 ms, 0,3 dB sur les 50 premières ms ; spectres en tiers d'octave à 0,6 dB rms |
+| Force au chevalet, les 88 touches à vélocité 0,5 (`make keyboard`, `results/keyboard.txt`) | niveau à 0,4 dB sur les 50 premières ms et à 0,1 dB de 50 ms à 1 s ; à 0,7 dB de 1 à 2 s (les queues de l'octave aiguë, 50 à 65 dB plus bas) ; spectres du début à 0,9 dB rms ; spectres tardifs à 1 dB rms sauf ré 7 à mi 7 (jusqu'à 5,7 dB, un partiel faible d'une queue 58 dB plus bas) |
 | Relâchement | la décroissance suit le C++ à 0,4 dB jusqu'à -82 dB |
 | Résonance sympathique sur la force C++ | identique à 1e-12 (-248 dB) |
 | Ajustement de la table d'harmonie | -25,5 dB (réponse partagée), -22,8 à -25,7 dB (régions) ; réponse en fréquence à 0,1 dB en médiane, moins de 0,7 dB pour 90 % des fréquences |
@@ -125,24 +129,30 @@ puis un banc de phaseurs amortis). La voix Faust en est l'équivalent en flux :
 
 ## faust-rs
 
-Ce modèle a rencontré plusieurs limites de faust-rs, contournées ici et à
-corriger là-bas :
+Ce modèle a rencontré plusieurs limites de faust-rs, contournées ici et
+décrites dans [`faust-rs-issues/RAPPORT.md`](faust-rs-issues/RAPPORT.md) (pour
+chacune, un reproducteur minimal, la cause dans le code de faust-rs et une
+correction possible). La plupart sont corrigées dans le faust-rs `main-dev` du
+16 octobre 2026 ; la première section du rapport donne les commits et les mesures.
+Corrigé :
 
-- l'évaluateur de boîtes ne mémoïse pas les applications de fonction : un appel
-  dans le corps d'un lambda est réévalué à chaque application, de façon
-  exponentielle en la profondeur (la voix coûtait ~1 s d'évaluation par
-  emplacement et culmine à 17 Go), d'où le style « flot de boîtes » de la voix ;
-- `fir-prepare-normalize` croît comme le cube de la longueur d'une somme (16 s
-  pour les deux sommes de 732 termes de la table, 1,6 s en sommant par paquets
-  de 32 derrière `opaque`) ;
-- `-vec` sur la voix ne termine pas en 20 minutes (planification vectorielle en
-  O(L⁴)) ;
-- une erreur d'arité de composition séquentielle est signalée sur un `_`
-  partagé d'une définition sans rapport ;
-- `rad` et `fad` sont des mots réservés (l'erreur d'analyse ne le dit pas), et
-  `-max(...)`/`-sin(...)` ne s'analysent pas ;
-- `faustprobe --nvoices` plante quand `effect` change le nombre de canaux.
+- l'évaluateur mémoïse les applications de fonction (`gApplyMemo` du C++) : un
+  appel dans le corps d'un lambda n'est plus réévalué à chaque application, et la
+  compilation de la voix est passée de 41 s et 17 Go à 7 s et 2,8 Go. La voix garde
+  son style « flot de boîtes », écrit pour l'éviter ;
+- les longues sommes, la fusion des récursions isomorphes, le point fixe des types
+  récursifs et celui des horloges ne coûtent plus le nombre de groupes de récursion
+  fois le graphe : le corps compile en 5 s au lieu de 45 s, et la voix suivie du
+  corps en un seul programme en 13 s au lieu de 363 s. `gsum` fait encore gagner
+  0,5 s sur le corps et reste ;
+- `x*x` (normalisé en `pow(x, 2)`) est un produit sur tous les backends, plus un
+  appel de bibliothèque ; la formule des fantômes sans carré reste ;
+- `faustprobe --nvoices` fait tourner l'instrument avec son corps en `effect`
+  (`make check`) ;
+- les diagnostics nomment les mots réservés (`rad` et `fad`, qui restent réservés),
+  expliquent `-max(...)` et `-L.g(...)`, et situent une erreur d'arité sur la
+  composition fautive.
 
-[`faust-rs-issues/RAPPORT.md`](faust-rs-issues/RAPPORT.md) détaille chacun de ces
-points avec un reproducteur minimal, la cause dans le code de faust-rs et une
-correction possible.
+Toujours ouvert : `-vec` sur la voix ne termine pas (planification vectorielle en
+O(L⁴) sur 31 825 boucles), et le travail au taux de bloc sort d'un domaine
+`ondemand` si son entrée n'est pas tenue au taux audio, d'où `on_change`.
