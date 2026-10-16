@@ -95,6 +95,14 @@ La version publiée est à https://sletz.github.io/faust-coopiano/.
   et sortie). Chacun affiche sa plage, sa valeur par défaut et une explication ; un
   double-clic le remet à sa valeur par défaut. La pédale suit aussi la barre
   d'espace et le CC64.
+- **Préréglages.** Un premier onglet propose huit types de piano, chacun
+  expliqué : grand piano de concert (les valeurs par défaut), grand piano moderne
+  brillant, grand piano feutré jazz, piano droit, honky-tonk, piano à feutre,
+  grand piano en salle de concert, vieux piano fatigué. Un préréglage part des
+  valeurs par défaut et en règle une partie (jamais la pédale) ; les autres
+  onglets montrent alors ce qu'il a réglé, et un réglage changé ensuite le
+  marque comme modifié. Les modes de la table d'harmonie restent ceux ajustés au
+  grand piano C++.
 - **Coût.** Le wasm de faust-rs tourne 2,5 à 4 fois plus lentement que la version
   native (`make web-check`, node sur un Apple M5, seconde en régime établi) :
   | DSP | pédale levée | pédale enfoncée | natif, pédale levée |

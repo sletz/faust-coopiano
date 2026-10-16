@@ -91,6 +91,12 @@ The published version is at https://sletz.github.io/faust-coopiano/.
   `default.ini` (hammer, strings, tone, sympathetic resonance, room, action and
   output). Each shows its range, its default and an explanation; a double-click
   resets one. The pedal also follows the space bar and CC64.
+- **Presets.** A first tab offers eight kinds of piano, each explained:
+  concert grand (the defaults), bright modern grand, mellow jazz grand, upright,
+  honky-tonk, felt piano, grand in a concert hall, old worn piano. A preset
+  starts from the defaults and sets some controls (never the pedal); the other
+  tabs then show what it set, and a control changed afterwards marks it as
+  modified. The soundboard's modes stay those fitted to the C++ grand.
 - **Cost.** The faust-rs wasm runs 2.5 to 4 times slower than the native build
   (`make web-check`, node on an Apple M5, second of steady state):
   | DSP | pedal up | pedal down | native, pedal up |

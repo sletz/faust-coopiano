@@ -2,7 +2,7 @@
 // computer keys), Web MIDI input, and the AudioWorklet that runs the
 // faust-rs wasm voices and body (coopiano-processor.js).
 
-import { GROUPS, TEXT } from "./controls.js";
+import { GROUPS, PRESETS, TEXT } from "./controls.js";
 import { uiItems, controlKey } from "./faust-wasm-dsp.js";
 
 const DSP_DIR = "dsp/";
@@ -75,15 +75,98 @@ function setControl(key, value, { send = true } = {}) {
     view.value.classList.toggle("changed", Math.abs(value - controlDefs.get(key).init) > 1e-12);
   }
   if (send && audio.node) audio.node.port.postMessage({ type: "control", key, value });
+  updatePresetState();
 }
 
-let activeGroup = GROUPS[0].id;
+// ---------------------------------------------------------------- presets
+
+let lastPreset = "concert";
+
+// What a preset sets: its overrides, the defaults for every other control
+// shown on the page, the pedal left alone.
+function presetTargets(preset) {
+  const targets = new Map();
+  for (const [key, def] of controlDefs) {
+    if (key === "action/pedal" || !controlViews.has(key)) continue;
+    targets.set(key, preset.values[key] ?? def.init);
+  }
+  return targets;
+}
+
+function presetMatches(preset) {
+  for (const [key, value] of presetTargets(preset)) {
+    if (Math.abs(values.get(key) - value) > 1e-9) return false;
+  }
+  return true;
+}
+
+function applyPreset(preset) {
+  lastPreset = preset.id;
+  for (const [key, value] of presetTargets(preset)) setControl(key, value);
+  updatePresetState();
+}
+
+function updatePresetState() {
+  for (const card of document.querySelectorAll(".preset[data-preset]")) {
+    const preset = PRESETS.find((p) => p.id === card.dataset.preset);
+    const active = preset.id === lastPreset;
+    card.classList.toggle("active", active);
+    card.querySelector(".badge").hidden = !active || presetMatches(preset);
+  }
+}
+
+function controlName(key) {
+  for (const group of GROUPS) if (group.controls[key]) return t(group.controls[key].name);
+  return key;
+}
+
+function buildPresetsPanel(box) {
+  const intro = document.createElement("p");
+  intro.className = "group-intro";
+  intro.textContent = t(TEXT.presetsIntro);
+  const grid = document.createElement("div");
+  grid.className = "presets";
+  for (const preset of PRESETS) {
+    const card = document.createElement("div");
+    card.className = "preset";
+    card.dataset.preset = preset.id;
+    const head = document.createElement("div");
+    head.className = "preset-head";
+    const name = document.createElement("h3");
+    name.textContent = t(preset.name);
+    const badge = document.createElement("span");
+    badge.className = "badge";
+    badge.textContent = t(TEXT.modified);
+    badge.hidden = true;
+    name.append(" ", badge);
+    const apply = document.createElement("button");
+    apply.type = "button";
+    apply.textContent = t(TEXT.apply);
+    apply.addEventListener("click", () => applyPreset(preset));
+    head.append(name, apply);
+    const help = document.createElement("p");
+    help.className = "control-help";
+    help.textContent = t(preset.help);
+    const changes = document.createElement("p");
+    changes.className = "control-range";
+    const keys = Object.keys(preset.values);
+    changes.textContent = t(TEXT.presetChanges) + " : "
+      + (keys.length ? keys.map(controlName).join(", ") : t(TEXT.presetNoChange)) + ".";
+    if (lang === "en") changes.textContent = changes.textContent.replace(" : ", ": ");
+    card.append(head, help, changes);
+    grid.append(card);
+  }
+  box.append(intro, grid);
+}
+
+let activeGroup = "presets";
 try {
   activeGroup = localStorage.getItem("coopiano-tab") || activeGroup;
 } catch {
   // the tab is only remembered when storage is available
 }
-if (!GROUPS.some((g) => g.id === activeGroup)) activeGroup = GROUPS[0].id;
+const TABS = [{ id: "presets", title: TEXT.presets }, ...GROUPS];
+if (!TABS.some((g) => g.id === activeGroup)) activeGroup = TABS[0].id;
 
 function selectGroup(id, focus = false) {
   activeGroup = id;
@@ -107,7 +190,7 @@ function buildControls() {
   const root = $("groups");
   tabs.textContent = "";
   root.textContent = "";
-  for (const group of GROUPS) {
+  for (const group of TABS) {
     const tab = document.createElement("button");
     tab.type = "button";
     tab.id = "tab-" + group.id;
@@ -120,8 +203,8 @@ function buildControls() {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       e.preventDefault();
       e.stopPropagation();
-      const i = GROUPS.findIndex((g) => g.id === activeGroup);
-      const next = GROUPS[(i + (e.key === "ArrowRight" ? 1 : GROUPS.length - 1)) % GROUPS.length];
+      const i = TABS.findIndex((g) => g.id === activeGroup);
+      const next = TABS[(i + (e.key === "ArrowRight" ? 1 : TABS.length - 1)) % TABS.length];
       selectGroup(next.id, true);
     });
     tabs.append(tab);
@@ -132,6 +215,11 @@ function buildControls() {
     box.dataset.group = group.id;
     box.setAttribute("role", "tabpanel");
     box.setAttribute("aria-labelledby", tab.id);
+    if (group.id === "presets") {
+      buildPresetsPanel(box);
+      root.append(box);
+      continue;
+    }
     const head = document.createElement("div");
     head.className = "group-head";
     const intro = document.createElement("p");
@@ -190,6 +278,7 @@ function buildControls() {
     root.append(box);
   }
   selectGroup(activeGroup);
+  updatePresetState();
 }
 
 // ---------------------------------------------------------------- audio

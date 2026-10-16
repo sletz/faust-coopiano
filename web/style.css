@@ -169,6 +169,12 @@ button.primary { background: var(--accent); border-color: var(--accent); color: 
 .group-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; }
 .group-intro { color: var(--muted); font-size: 0.9rem; margin: 0 0 8px; max-width: 75ch; }
 .group-controls { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 0 24px; }
+.presets { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.preset { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.preset.active { border-color: var(--accent); background: var(--accent-soft); }
+.preset-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.preset-head h3 { font-size: 1rem; }
+.badge { font-size: 0.75rem; font-weight: 500; color: var(--accent); border: 1px solid var(--accent); border-radius: 10px; padding: 0 6px; vertical-align: middle; }
 .control { padding: 8px 0; border-top: 1px solid var(--line); }
 .control-row { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: center; }
 .control-name { font-weight: 600; font-size: 0.95rem; }
