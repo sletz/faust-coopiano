@@ -149,7 +149,7 @@ web-serve: web
 	$(PYTHON) scripts/web_serve.py $(PORT)
 
 web-pages: web
-	./scripts/publish_pages.sh
+	FAUSTRS=$(FAUSTRS) ./scripts/publish_pages.sh
 
 clean:
 	rm -rf build $(WEB_DSP)
