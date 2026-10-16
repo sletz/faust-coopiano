@@ -63,7 +63,7 @@
 //########################################################################################
 
 declare name "coopiano";
-declare version "0.2.0";
+declare version "0.2.1";
 declare author "Stéphane Letz";
 declare copyright "Faust model: GRAME, 2026; coopiano C++ model: Peter Cooper, 2026";
 declare license "MIT";
@@ -2025,9 +2025,14 @@ with {
 };
 
 // A damped key sounds while its dampers are lifted and for six closed T60
-// after they seat.
-_res_awake(o) = (o > 0.0) | (quiet < ma.SR * _r_damper * 6.0)
-with { quiet = (+(1) : *(o <= 0.0)) ~ _; };
+// after they seat. Seated is an openness below 1e-9, not 0: faust-rs normalizes
+// `(1 - contact) - o` to `1 - (o + contact)` (Faust C++ keeps `1 - contact`
+// apart; faust-rs-issues/RAPPORT.md, point 15), so with the pedal up the openness
+// settles at the rounding error of `o + 1` (about 1e-17) and never reaches 0,
+// which kept the damped keys awake after the first pedal.
+_RES_SEATED = 1e-9;
+_res_awake(o) = (o > _RES_SEATED) | (quiet < ma.SR * _r_damper * 6.0)
+with { quiet = (+(1) : *(o <= _RES_SEATED)) ~ _; };
 
 // Key g's resonators with their parameters, recomputed on change.
 _res_key(g, chg, x, o) = (on_change(chg, 21.0 + g, \(b).(par(p, ba.take(g + 1, tb.res_n), _res_params(b, p + 1)))), x, o)
