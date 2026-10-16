@@ -62,7 +62,7 @@ ceux de `bf65d311`.
 | 12 | ouvert | — | voix en `-vec -vs 32` : 31 825 boucles et 95 060 arêtes de données ; délai de 180 s dépassé, 7 Go ; la correction proposée (chaînage par ressource) reste valable |
 | 13 | corrigé | `d8543508` | MEMOIZATION §2.4c et §3.7 décrivent désormais `gApplyMemo` |
 | 14 | ouvert (constaté le 16 au soir) | — | `r15` : le wasm de faust-rs coûte 1,3 à 1,8 fois le C++ de faust-rs compilé par `em++ -O3`, sorties identiques à faustprobe |
-| 15 | ouvert (constaté le 16 au soir) | — | `r16` : `1 - c - o` est groupé `(1 - o) - c` au lieu de `(1 - c) - o` ; la partie lente n'est plus hissée et la récurrence s'arrête à 1e-17 au lieu de 0 |
+| 15 | corrigé (port de l'amont) | `8886a772` | `r16` : `1 - c - o` donne désormais `(1 - c) - o`, `1 - c` est hissé et la récurrence atteint 0. faust-rs suivait la référence épinglée ; c'est l'amont qui a changé (`d4d51e5ed`, 9 août 2026), porté dans faust-rs (DIFF-BEH-023) |
 
 Les causes du point 10 n'étaient pas celle supposée seule : trois coûts « par
 groupe de récursion × graphe atteignable » se cumulaient dans
@@ -90,7 +90,7 @@ faust-rs.
 | 12 | `-vec` sur la voix : plus de 20 minutes contre 25 à 40 s en scalaire ; planification vectorielle en O(L⁴) | performance de compilation | haute en mode vectoriel | — |
 | 13 | `porting/MEMOIZATION.md` décrit à tort les environnements C++ comme hash-consés | documentation | basse | — |
 | 14 | Code wasm 1,3 à 1,8 fois plus lent que le C++ du même programme compilé par Emscripten | performance d'exécution | moyenne (version web) | à comparer au wasm du C++ |
-| 15 | Somme constante + commande + signal groupée autrement qu'en C++ : partie lente non hissée, arrondi différent | performance d'exécution + parité numérique | moyenne | le C++ 2.90.8 groupe et hisse `1 - c` |
+| 15 | Somme constante + commande + signal groupée autrement que dans l'amont 2.90 : partie lente non hissée, arrondi différent | performance d'exécution + parité numérique | moyenne | la référence épinglée (2.84.3) groupe comme faust-rs ; l'amont 2.90 a changé (`d4d51e5ed`) |
 
 Les points 1 à 9 ont un reproducteur minimal. Les points 10 à 12 ont été observés
 sur le programme réel ; la cause du point 12 est identifiée par échantillonnage, mais
@@ -685,7 +685,7 @@ diraient où chercher :
 **Correction possible.** Le backend wasm du C++ sert de référence de parité : le
 comparer sur un DSP que les deux compilent, avant de viser Emscripten.
 
-## 15. Une somme constante + commande + signal est groupée autrement qu'en C++
+## 15. Une somme constante + commande + signal est groupée autrement que dans l'amont
 
 Constaté le 16 octobre au soir, en cherchant pourquoi le corps de la version web
 restait à son coût « pédale enfoncée » après le relâchement de la pédale.
@@ -693,8 +693,9 @@ restait à son coût « pédale enfoncée » après le relâchement de la pédal
 **Constat.** Sur `r16_sum_grouping.dsp`, `o + max(-st, min(st, 1 - c - o))` avec
 `c` un curseur, `o` la récursion :
 
-- le C++ 2.90.8 émet `fRec0[1] + max(-fSlow0, min(fSlow0, fSlow1 - fRec0[1]))`,
-  avec `fSlow1 = 1 - c` calculé une fois par bloc ;
+- Faust amont 2.90.10 (`/usr/local/bin/faust`, et non 2.90.8 comme écrit d'abord)
+  émet `fRec0[1] + max(-fSlow0, min(fSlow0, fSlow1 - fRec0[1]))`, avec
+  `fSlow1 = 1 - c` calculé une fois par bloc ;
 - faust-rs émet `fRec0 + fmax(fSlow2, fmin(fSlow1, (1.0 - fRec0) - fSlow0))`, et
   dans `coopiano.lib` `1.0 - (fRec0 + fSlow4)`.
 
@@ -713,20 +714,30 @@ coûtait 22 % au lieu de 15 %. Le son n'en dépendait pas, l'ouverture résiduel
 valant 1e-17. `coopiano.lib` 0.2.1 contourne le défaut avec un seuil
 (`_RES_SEATED = 1e-9`).
 
-**Cause.** Non établie. `crates/normalize/src/aterm.rs`, `normalized_tree`
-(lignes 186 à 240), reproduit `aterm::normalizedTree` du C++ : des paquets par
-variabilité, repliés de l'ordre le plus haut au plus bas. La différence vient donc
-d'ailleurs, sans que ce soit vérifié :
+**Cause.** Établie le 16 au soir : ce n'était pas une divergence de faust-rs. La
+branche C++ de référence épinglée (`8eebea429`, 2.84.3) imprime la même forme
+normale que faust-rs (`-norm` : `-(-(1, o), c)`). C'est l'amont qui a changé après
+elle, par le commit `d4d51e5ed` de Yann Orlarey (9 août 2026) : un cinquième ordre,
+« audio-récursif » (le bit `kContainsRec`, « un état m'atteint »), dont les termes
+rejoignent la somme en dernier, comme opérande de droite. Mesure de l'amont :
+156 programmes touchés, 136 identiques au bit près, 20 arrondis (au plus 2e-5), des
+gains jusqu'à ×0,74 sur les filtres Oberheim.
 
-- de la variabilité attribuée aux termes (`sig_order`) ;
-- du repliement dans `add_terms_with_sign` ;
-- d'une étape ultérieure.
+**Correction.** Portée dans faust-rs par le commit `8886a772` (branche de travail,
+à intégrer à `main-dev`) : le bit `TreeArena::contains_recursion`, la jonction
+tardive dans `Aterm::normalized_tree` et le poids de `Mterm::complexity`, comme
+l'amont ; entrée DIFF-BEH-023 du registre. `r16` donne désormais
+`fSlow0 = 1 - c` et `fSlow0 - fRec0`, et la récurrence atteint 0,0. Sur les 632
+programmes du corpus de faust-rs, 210 changent de code, et faustprobe donne :
 
-Il faut comparer les signaux normalisés des deux compilateurs sur `r16`.
+- 191 programmes identiques au bit près ;
+- 12 qui ne diffèrent que d'arrondis ;
+- 3 sensibles à l'arrondi.
 
-**Correction possible.** Grouper comme le C++, ce qui rétablit le hissage et
-l'arrondi. C'est une correction de parité, qui change le code généré : elle doit
-passer par le différentiel du corpus et une entrée du registre si un écart subsiste.
+Les impulse-tests n'ont aucun nouvel échec, et `make engine` donne ici les mêmes
+chiffres. Le seuil `_RES_SEATED` de `coopiano.lib` 0.2.1 devient inutile avec ce
+compilateur. Il est sans effet sur le son, et il est gardé tant que `main-dev`
+n'a pas intégré le correctif.
 
 ---
 
