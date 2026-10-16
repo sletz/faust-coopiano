@@ -73,13 +73,143 @@ a bank of decaying phasors). The Faust voice is a streaming equivalent:
 - **Action noises** follow `prep_note_into`'s filters and envelopes; their level
   (`tone_peak_amp`, known only after the contact solve) comes from a table of
   the C++ solve over keys and velocities.
-- **Body.** The sympathetic bank is `SympatheticResonance` (88 keys, partials
-  below 7 kHz), the played key's own share withheld by a per-voice correction
-  (`own_drive`); damped keys run in `ondemand` domains that sleep while the
-  dampers stay seated. The soundboard is a bank of the C++ board's 732 modes
-  whose complex amplitudes are fitted, by least squares with a closed-form Gram
-  matrix, to Engine's responses for each bridge region (head and shared tail);
-  a mode is driven by `sum_r A_r x_r`. The room is `StereoReverb` line by line.
+- **Body.** The sympathetic register, the soundboard fitted per bridge region
+  and the room run once on the summed voices; see the next section.
+
+## The body (`cp.body`)
+
+`cp.body` is the `effect` of `dsp/coopiano.dsp`. The polyphonic architecture
+sums the voices' outputs channel by channel and runs the body once on that sum,
+as `instrument.hpp` sums its voices before `render_force`, `convolve_span` and
+`finish_block`. Summing first is exact because everything before the limiter is
+linear.
+
+```
+voices 1..16 ──(summed by the polyphonic architecture)──► x0 x1 x2 x3 c
+                                                            │
+   w = (gain · res_bank(x0 + x1 + x2 + x3) + c) / 4         sympathetic register
+                                                            │
+   x0 + w, x1 + w, x2 + w, x3 + w ──► soundboard ──► L, R   732 modes, imaged
+                                                            │
+   on each channel: dc_block ─► room ─► × output_gain ─► limit
+```
+
+### What enters: five channels per voice
+
+A voice computes `F`, the force its strings exert on the bridge (in newtons),
+and outputs five channels (`_regions_out`):
+
+- **`x0` to `x3`, the force split over four bridge regions.** Key `m` sits at
+  `(m - 21) / 87` along the bridge, and `region_gain` crossfades linearly
+  between the two regions around that position (centres at 0.125, 0.375, 0.625
+  and 0.875). A0 goes entirely to region 0, C8 to region 3, the middle of the
+  keyboard half to region 1 and half to region 2. The four gains sum to 1, so
+  `x0 + x1 + x2 + x3` is the voices' total force. The regions carry the stereo
+  image: the board answers a force differently depending on where it enters
+  the bridge. The rule is `key_region_` of `instrument.hpp`.
+- **`c`, the correction of the played key:**
+  `c = (own_drive - 1) · gain · res_own(m)(F)`, where `res_own(m)` is a copy of
+  key `m`'s sympathetic resonators (16 partials), driven by the voice's own
+  force with the openness its key has in the bank. With `own_drive = 0` (the
+  default), it removes the voice's share from its own key's resonators, as the
+  C++ bank does with its per-key `own_force_` rows. The bank is linear, so
+  `gain · res_bank(sum of F) + sum of c` is exactly "each voice excites every
+  key's strings but its own". Only the voice knows `m`, which is why it outputs
+  five channels and not four.
+
+### 1. Sympathetic register (`res_bank`)
+
+`SympatheticResonance` transcribed: 88 keys, 1002 resonators, up to 16 partials
+per key (fewer in the treble), driven by the total force and excited only below
+7 kHz.
+
+- **One partial.** Partial `p` of key `m`:
+  - its frequency is `p f0 sqrt(1 + B p²)`;
+  - it is a complex one-pole, a damped rotation;
+  - its radius is blended by the dampers' openness `o` between open (the key's
+    T60, capped at `maximum_decay_seconds`) and closed (T60
+    `damper_decay_seconds`);
+  - its drive, `2 (1 - r) / (p (1 + (f / 3500)²))`, is multiplied by `o`, where
+    `r` is the open radius. A seated damper therefore lets the string decay but
+    gives it no new energy.
+- **Openness.** It follows `1 - damper_contact(pedal)` at a rate of
+  `1 / transition_seconds`. The dampers are seated below a pedal position of
+  0.25 and fully lifted above 0.65. Keys 90 to 108 (F#6 to C8, `f0` ≥ 1400 Hz)
+  have no damper and are always open. With the pedal up, only they resonate.
+  A key held silently does not open (see *Known differences*).
+- **Clock domains.** The 69 keys with dampers (A0 to F6) each run in an
+  `ondemand` domain. A domain is awake while the dampers are lifted and for six
+  closed T60 (about 1.1 s) after they seat. Asleep, nothing is computed and the
+  output is 0, which is most of the cost difference between pedal up and pedal
+  down. A key's parameters are recomputed only on change (`on_change`): at the
+  first sample, when a decay control or the voicing changes, and when the
+  domain wakes.
+- **Output.** The 88 outputs are summed by `gsum(88, 8)`: groups of 8 behind an
+  opaque barrier, a compile-time measure with no effect on the result. The sum
+  is scaled by `gain` (0.18) and added to the corrections `c`, which gives `w`.
+  `w` is spread evenly over the four regions, as `render_force` spreads
+  whatever the regions do not account for: the sympathetic wet signal has no
+  place on the bridge.
+
+### 2. Soundboard (`soundboard`)
+
+The C++ convolves, with partitioned FFTs (`convolve_span`), each region's force
+with that region's response over the first 0.2 s (the imaged head), and the
+summed force with a shared tail. The model replaces that convolution by a modal
+bank:
+
+- **Poles.** It uses the C++ board's 732 poles, from 48 Hz to 16.5 kHz:
+  `λ = exp(-σT) exp(i 2π f T)`.
+- **Amplitudes.** Each mode has eight complex amplitudes `A[c][r]`, one per
+  channel (L, R) and region. They are fitted by least squares to Engine's
+  response to an impulse in each region, head and shared tail
+  (`scripts/gen_tables.py`, -22.8 to -25.7 dB).
+- **Resonators.** Each mode and channel is a complex one-pole driven by the
+  complex combination of the region forces:
+  `s[n] = λ s[n-1] + sum over r of A[c][r] x_r[n]`, output `Im(s)`. That makes
+  1464 resonators.
+- **Stereo image.** It comes from the left and right amplitudes differing from
+  one region to the next. The imaging is fixed at the C++ defaults (spread 0.7,
+  position depth 0.5).
+- **Parameters.** They are read from the tables once, at the first sample
+  (`_board_chunks(_first, ...)`, 12 `ondemand` domains of 61 modes). The
+  `route` places each mode's 18 parameters next to the four forces.
+- **Sums.** The two channels are summed by `gsum2(732, 32)`.
+
+`body_light` (`dsp/coopiano_light.dsp`) changes only this stage.
+`soundboard_mono` sums the regions first and gives each mode a single
+resonator `u`, read with two complex amplitudes: `L = Im(a_L u)` and
+`R = Im(a_R u)`. It loses the per-region imaging and costs about a third as
+much.
+
+### 3. Output, on each channel
+
+1. **`dc_block`**: a one-pole high-pass at 20 Hz (`DcBlocker`).
+2. **`room`**: `StereoReverb` of `reverb.hpp`, line by line.
+   - The wet path is high-passed at 150 Hz and predelayed (`predelay_ms`).
+   - Six early taps, from 7 to 31 ms, cross between the channels.
+   - Each side has two diffusion all-passes.
+   - Eight delay lines (1493 to 2423 samples at 44.1 kHz) share an
+     unnormalised Walsh-Hadamard feedback. Each is damped by a one-pole
+     low-pass at `damping_hz`, and its gain is set for `decay_seconds`.
+   - The output is `dry + mix · (0.45 · early + 0.70 · late / sqrt(8))`: the
+     dry signal passes unchanged.
+3. **`× output_gain`** (0.0011): from newtons to audio level.
+4. **`limit`** (`limit_output`): unchanged up to 0.8, with a tanh knee toward 1
+   above. It is the only nonlinear stage, after every sum.
+
+### The body's controls
+
+| Group | Control | Default | Effect |
+|---|---|---|---|
+| resonance | `gain` | 0.18 | level of the sympathetic register |
+| | `own_drive` | 0 | 1: the played key also drives its own resonators |
+| | `maximum_decay_seconds` | 12 | cap on the open T60 |
+| | `damper_decay_seconds` | 0.18 | T60 with the dampers seated (×6: how long a domain stays awake) |
+| | `transition_seconds` | 0.04 | how fast the dampers lift and seat |
+| reverb | `mix`, `decay_seconds`, `predelay_ms`, `damping_hz` | 0.3, 1.1, 12, 5500 | the room |
+| action | `pedal` | 0 | sustain pedal |
+| | `output_gain` | 0.0011 | output level |
 
 ## Results (build/ref against this model, faust-rs, Apple M5)
 
@@ -110,7 +240,8 @@ a bank of decaying phasors). The Faust voice is a streaming equivalent:
 - **Noise levels** come from the default voicing's contact solve: other hammer
   voicings scale the strings exactly but the action noises only approximately.
 - **Sympathetic register**: opened by the pedal and by the damper-free treble; a
-  silently held key's own strings are not opened (a voice cannot see the others).
+  silently held key's own strings, which the C++ opens, are not opened (a voice
+  cannot see the others, and the body sees only their sum).
 - **Soundboard**: imaging fixed at the C++ defaults (spread 0.7, position depth
   0.5) and board voicing fixed at `default.ini` (re-run `make tables` after
   changing them in `ref/dump.cpp`); the late tail after a release (more than

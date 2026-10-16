@@ -76,15 +76,152 @@ puis un banc de phaseurs amortis). La voix Faust en est l'équivalent en flux :
 - **Bruits de mécanique** : mêmes filtres et enveloppes que `prep_note_into` ;
   leur niveau (`tone_peak_amp`, connu seulement après le contact) vient d'une
   table de la résolution C++ par touche et vélocité.
-- **Corps.** La résonance sympathique est `SympatheticResonance` (88 touches,
-  partiels sous 7 kHz), la part de la touche jouée retirée par une correction
-  dans la voix (`own_drive`) ; les touches à étouffoir tournent dans des
-  domaines `ondemand` qui dorment tant que les étouffoirs restent posés. La
-  table d'harmonie est un banc des 732 modes de la table C++ dont les amplitudes
-  complexes sont ajustées, par moindres carrés avec une matrice de Gram en forme
-  close, aux réponses d'`Engine` pour chaque région du chevalet (tête et queue
-  partagée) ; un mode est excité par `sum_r A_r x_r`. La salle est
-  `StereoReverb` ligne à ligne.
+- **Corps.** La résonance sympathique, la table d'harmonie ajustée par région
+  du chevalet et la salle tournent une seule fois sur la somme des voix ; voir
+  la section suivante.
+
+## Le corps (`cp.body`)
+
+`cp.body` est l'`effect` de `dsp/coopiano.dsp`. L'architecture polyphonique
+additionne les sorties des voix canal par canal et applique le corps une seule
+fois à cette somme, comme `instrument.hpp` additionne ses voix avant
+`render_force`, `convolve_span` et `finish_block`. Additionner d'abord est exact,
+car tout ce qui précède le limiteur est linéaire.
+
+```
+voix 1..16 ──(somme par l'architecture polyphonique)──► x0 x1 x2 x3 c
+                                                          │
+   w = (gain · res_bank(x0 + x1 + x2 + x3) + c) / 4       résonance sympathique
+                                                          │
+   x0 + w, x1 + w, x2 + w, x3 + w ──► soundboard ──► G, D table d'harmonie, 732 modes
+                                                          │
+   sur chaque canal : dc_block ─► room ─► × output_gain ─► limit
+```
+
+### Ce qui entre : cinq canaux par voix
+
+Une voix calcule `F`, la force de ses cordes sur le chevalet (en newtons), et
+sort cinq canaux (`_regions_out`) :
+
+- **`x0` à `x3`, la force répartie sur quatre régions du chevalet.** La touche
+  `m` est à la position `(m - 21) / 87` le long du chevalet, et `region_gain`
+  fait un fondu linéaire entre les deux régions qui l'entourent (centres à
+  0,125, 0,375, 0,625 et 0,875). Le la 0 va entièrement dans la région 0, le
+  do 8 dans la région 3, le milieu du clavier moitié dans la région 1, moitié
+  dans la région 2. Les quatre gains somment à 1, donc `x0 + x1 + x2 + x3` est
+  la force totale des voix. Les régions portent l'image stéréo : la table ne
+  répond pas de la même façon selon l'endroit où la force entre sur le
+  chevalet. La règle est celle de `key_region_` dans `instrument.hpp`.
+- **`c`, la correction de la touche jouée :**
+  `c = (own_drive - 1) · gain · res_own(m)(F)`, où `res_own(m)` est une copie
+  des résonateurs sympathiques de la touche `m` (16 partiels), excitée par la
+  force de la voix, avec l'ouverture qu'a sa touche dans le banc. Avec
+  `own_drive = 0` (par défaut), elle retire la part de la voix des résonateurs
+  de sa propre touche, comme le fait le banc C++ avec ses lignes `own_force_`
+  par touche. Le banc est linéaire, donc `gain · res_bank(somme des F) + somme
+  des c` est exactement « chaque voix excite les cordes de toutes les touches
+  sauf la sienne ». Seule la voix connaît `m` : c'est pourquoi elle sort cinq
+  canaux et non quatre.
+
+### 1. Résonance sympathique (`res_bank`)
+
+`SympatheticResonance` transcrit : 88 touches, 1002 résonateurs, jusqu'à 16
+partiels par touche (moins dans l'aigu), excités par la force totale et
+seulement sous 7 kHz.
+
+- **Un partiel.** Le partiel `p` de la touche `m` :
+  - a pour fréquence `p f0 sqrt(1 + B p²)` ;
+  - est un résonateur complexe à un pôle, une rotation amortie ;
+  - a un rayon interpolé selon l'ouverture des étouffoirs `o`, entre ouvert (le
+    T60 de la touche, plafonné par `maximum_decay_seconds`) et fermé (T60
+    `damper_decay_seconds`) ;
+  - a une excitation, `2 (1 - r) / (p (1 + (f / 3500)²))`, multipliée par `o`,
+    où `r` est le rayon ouvert. Un étouffoir posé laisse donc la corde
+    s'éteindre, mais ne lui donne plus d'énergie.
+- **Ouverture.** Elle suit `1 - damper_contact(pedal)` à la vitesse
+  `1 / transition_seconds`. Les étouffoirs sont posés quand la pédale est sous
+  0,25 et entièrement levés au-dessus de 0,65. Les touches 90 à 108 (fa# 6 à
+  do 8, `f0` ≥ 1400 Hz) n'ont pas d'étouffoir et sont toujours ouvertes :
+  pédale levée, ce sont les seules qui résonnent. Une touche tenue sans être
+  jouée ne s'ouvre pas (voir *Différences connues*).
+- **Domaines d'horloge.** Les 69 touches à étouffoir (la 0 à fa 6) tournent
+  chacune dans un domaine `ondemand`. Un domaine est éveillé tant que les
+  étouffoirs sont levés, et pendant six T60 fermés (1,1 s environ) après leur
+  pose. Endormi, rien n'est calculé et la sortie vaut 0 : c'est l'essentiel de
+  l'écart de coût entre pédale levée et pédale enfoncée. Les paramètres d'une
+  touche ne sont recalculés que sur changement (`on_change`) : au premier
+  échantillon, quand un réglage de décroissance ou l'harmonisation change, et
+  au réveil du domaine.
+- **Sortie.** Les 88 sorties sont additionnées par `gsum(88, 8)` : des paquets
+  de 8 derrière une barrière opaque, une mesure pour le temps de compilation
+  sans effet sur le résultat. La somme est multipliée par `gain` (0,18) et
+  ajoutée aux corrections `c`, ce qui donne `w`. `w` est réparti à parts
+  égales sur les quatre régions, comme `render_force` répartit tout ce que les
+  régions ne comptent pas : le signal sympathique n'a pas de place sur le
+  chevalet.
+
+### 2. Table d'harmonie (`soundboard`)
+
+Le C++ convolue, par FFT partitionnées (`convolve_span`), la force de chaque
+région avec la réponse de cette région sur les 0,2 premières secondes (la tête
+imagée), et la force totale avec une queue partagée. Le modèle remplace cette
+convolution par un banc modal :
+
+- **Pôles.** Ce sont les 732 pôles de la table C++, de 48 Hz à 16,5 kHz :
+  `λ = exp(-σT) exp(i 2π f T)`.
+- **Amplitudes.** Chaque mode a huit amplitudes complexes `A[c][r]`, une par
+  canal (G, D) et par région. Elles sont ajustées par moindres carrés à la
+  réponse d'`Engine` à une impulsion dans chaque région, tête et queue
+  partagée (`scripts/gen_tables.py`, -22,8 à -25,7 dB).
+- **Résonateurs.** Chaque mode et chaque canal est un résonateur complexe à un
+  pôle, excité par la combinaison complexe des forces de région :
+  `s[n] = λ s[n-1] + somme sur r de A[c][r] x_r[n]`, sortie `Im(s)`. Cela fait
+  1464 résonateurs.
+- **Image stéréo.** Elle vient de ce que les amplitudes gauche et droite
+  changent d'une région à l'autre. L'imagerie est figée aux valeurs C++ par
+  défaut (spread 0,7, position depth 0,5).
+- **Paramètres.** Ils sont lus dans les tables une seule fois, au premier
+  échantillon (`_board_chunks(_first, ...)`, 12 domaines `ondemand` de 61
+  modes). Le `route` place les 18 paramètres de chaque mode à côté des quatre
+  forces.
+- **Sommes.** Les deux canaux sont additionnés par `gsum2(732, 32)`.
+
+`body_light` (`dsp/coopiano_light.dsp`) ne change que cette étape.
+`soundboard_mono` additionne d'abord les régions et donne à chaque mode un seul
+résonateur `u`, lu avec deux amplitudes complexes : `G = Im(a_G u)` et
+`D = Im(a_D u)`. Il perd l'imagerie par région et coûte environ trois fois
+moins.
+
+### 3. Sortie, sur chaque canal
+
+1. **`dc_block`** : un passe-haut à un pôle à 20 Hz (`DcBlocker`).
+2. **`room`** : `StereoReverb` de `reverb.hpp`, ligne à ligne.
+   - Le signal d'effet est filtré en passe-haut à 150 Hz, puis retardé
+     (`predelay_ms`).
+   - Six premières réflexions, de 7 à 31 ms, se croisent entre les canaux.
+   - Chaque côté a deux passe-tout de diffusion.
+   - Huit lignes à retard (1493 à 2423 échantillons à 44,1 kHz) partagent un
+     retour de Walsh-Hadamard non normalisé. Chacune est amortie par un
+     passe-bas à un pôle à `damping_hz`, et son gain est réglé pour
+     `decay_seconds`.
+   - La sortie vaut `sec + mix · (0,45 · premières + 0,70 · tardives /
+     sqrt(8))` : le signal sec passe intact.
+3. **`× output_gain`** (0,0011) : des newtons au niveau audio.
+4. **`limit`** (`limit_output`) : sans effet jusqu'à 0,8, puis un coude en tanh
+   vers 1. C'est la seule étape non linéaire, après toutes les sommes.
+
+### Les réglages du corps
+
+| Groupe | Réglage | Défaut | Effet |
+|---|---|---|---|
+| resonance | `gain` | 0,18 | niveau de la résonance sympathique |
+| | `own_drive` | 0 | 1 : la touche jouée excite aussi ses propres résonateurs |
+| | `maximum_decay_seconds` | 12 | plafond du T60 ouvert |
+| | `damper_decay_seconds` | 0,18 | T60 étouffoirs posés (×6 : durée d'éveil d'un domaine) |
+| | `transition_seconds` | 0,04 | vitesse de levée et de pose des étouffoirs |
+| reverb | `mix`, `decay_seconds`, `predelay_ms`, `damping_hz` | 0,3, 1,1, 12, 5500 | la salle |
+| action | `pedal` | 0 | pédale forte |
+| | `output_gain` | 0,0011 | niveau de sortie |
 
 ## Résultats (build/ref contre ce modèle, faust-rs, Apple M5)
 
@@ -117,8 +254,9 @@ puis un banc de phaseurs amortis). La voix Faust en est l'équivalent en flux :
   réglages du marteau modifient exactement les cordes mais seulement
   approximativement les bruits de mécanique.
 - **Résonance sympathique** : ouverte par la pédale et par l'aigu sans
-  étouffoirs ; les cordes d'une touche tenue sans être jouée ne s'ouvrent pas
-  (une voix ne voit pas les autres).
+  étouffoirs ; les cordes d'une touche tenue sans être jouée, que le C++ ouvre,
+  ne s'ouvrent pas (une voix ne voit pas les autres, et le corps ne voit que
+  leur somme).
 - **Table d'harmonie** : imagerie figée aux valeurs C++ par défaut (spread 0,7,
   position_depth 0,5) et réglages de la table figés à `default.ini`
   (`make tables` après les avoir changés dans `ref/dump.cpp`) ; la fin de queue

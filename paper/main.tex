@@ -14,6 +14,7 @@
 \usepackage{enumitem}
 \usepackage[hidelinks]{hyperref}
 \usepackage{url}
+\usepackage{tikz}
 
 \captionsetup{font=small,labelfont=bf}
 \setlist{nosep,leftmargin=*}
@@ -129,7 +130,51 @@ One draw is per strike: each string's bridge readout is scaled by $1 + 0.13u$, $
 \section{The body}
 \label{sec:body}
 
-\paragraph{Sympathetic register.} The bank is \code{SympatheticResonance} transcribed: 1002 resonator slots, a damped rotation per partial, the drive gated by the group's openness. A Faust effect sees only the summed force, not which keys are held, so two of the C++ behaviours need care. The withholding of a key's own force is linear: $\sum_k R_k(x - w\,x_k) = \sum_k R_k(x) - w\sum_k R_k(x_k)$, and the second term is computed by each voice from its own force, with the openness its key has in the shared bank, and handed to the body on a fifth channel. Driven by the C++ force of a C4 strike, the Faust bank and correction equal the C++ bank to $10^{-12}$ ($-248$\,dB). The opening of a key held silently is not modelled.
+\paragraph{Inputs and chain.} The body is the program's \code{effect}: the polyphonic architecture sums the voices' outputs channel by channel and runs it once on the sum, as the engine sums its voices before its body; this is exact because everything before the limiter is linear. A voice has five outputs (Fig.~\ref{fig:bodychain}). Four carry its bridge force $F$ split over the bridge regions: the key sits at $(m-21)/87$ along the bridge and its force is crossfaded linearly between the two regions around that point (centres at $1/8$, $3/8$, $5/8$, $7/8$), the engine's \code{key\_region\_}; A0 feeds region 0 only, C8 region 3 only. The gains sum to one, so the four channels add up to the total force. The fifth is the correction of the played key, described below. The body adds the sympathetic register's output to every region, drives the soundboard with the four region forces, and passes each output channel through the DC filter, the room, the output gain and the limiter:
+\begin{lstlisting}
+_body_with(board, x0, x1, x2, x3, c)
+  = (x0 + w, x1 + w, x2 + w, x3 + w) : board
+  : dc_block, dc_block : room
+  : *(_out_gain), *(_out_gain) : limit, limit
+with { w = (_r_gain * res_bank(x0 + x1 + x2 + x3)
+            + c) / REGIONS; };
+\end{lstlisting}
+
+\begin{figure}[t]
+\centering
+\resizebox{\columnwidth}{!}{%
+\begin{tikzpicture}[font=\footnotesize,>=stealth,
+  blk/.style={draw,rounded corners=1pt,minimum height=6.5mm,inner sep=2.5pt,align=center},
+  op/.style={draw,circle,inner sep=0pt,minimum size=4mm}]
+\node[blk] (v) at (0,0) {voices $1..16$\\summed};
+\node[blk] (bank) at (2.6,-1.1) {\code{res\_bank}\\$\times$ \code{gain}};
+\node[op] (pc) at (4.6,-1.1) {$+$};
+\node[blk] (div) at (4.6,-2.2) {$/4$};
+\node[op] (pw) at (0,-2.2) {$+$};
+\node[blk] (board) at (0,-3.4) {soundboard: 732 modes,\\4 regions $\to$ L, R};
+\node[blk] (dc) at (0,-4.9) {\code{dc\_block}};
+\node[blk] (room) at (1.8,-4.9) {\code{room}};
+\node[blk] (gain) at (3.75,-4.9) {$\times$ \code{output\_gain}};
+\node[blk] (lim) at (5.7,-4.9) {\code{limit}};
+\draw[->,line width=1.1pt] (v) -- node[left] {$x_0..x_3$} (pw);
+\fill (0,-1.1) circle (1.4pt);
+\draw[->] (0,-1.1) -- node[above] {$\sum_r x_r$} (bank);
+\draw[->] (bank) -- (pc);
+\draw[->] (v.east) -| node[pos=0.25,above] {$c$} (pc);
+\draw[->] (pc) -- (div);
+\draw[->] (div) -- node[above] {$w$ (to each region)} (pw);
+\draw[->,line width=1.1pt] (pw) -- node[left] {$x_r + w$} (board);
+\draw[->,double] (board) -- node[left] {L, R} (dc);
+\draw[->,double] (dc) -- (room);
+\draw[->,double] (room) -- (gain);
+\draw[->,double] (gain) -- (lim);
+\draw[->,double] (lim) -- ++(1.0,0) node[right] {out};
+\end{tikzpicture}}
+\caption{The body. Thick lines carry the four region forces, double lines the two output channels. The voices' fifth channel $c$ withholds each key's own share from the sympathetic register.}
+\label{fig:bodychain}
+\end{figure}
+
+\paragraph{Sympathetic register.} The bank transcribes the C++ class \code{SympatheticResonance}: 1002 resonators, up to 16 partials per key, excited below 7\,kHz only. Partial $p$ of a key of fundamental $f_0$ and inharmonicity $B$ is a damped rotation at $f = pf_0\sqrt{1+Bp^2}$. Its radius is interpolated by the dampers' openness $o$ between the open radius $r$ (the key's $T_{60}$, at most \code{maximum\_decay\_seconds}, 12\,s) and the closed one ($T_{60}$ of \code{damper\_decay\_seconds}, 0.18\,s). Its drive $2(1-r)/\big(p(1+(f/3500)^2)\big)$ is multiplied by $o$, so a seated damper lets the string decay without feeding it. The openness follows $1 - \code{damper\_contact}(\mathit{pedal})$ at a bounded rate (\code{transition\_seconds}, 40\,ms); keys from F\#6 up have no damper and stay open, so with the pedal up only they ring. The 69 keys with dampers each run in an \code{ondemand} domain, awake while the dampers are lifted and for six closed $T_{60}$ after they seat: a sleeping key costs nothing, outputs zero, and recomputes its parameters when it wakes. The output, scaled by \code{gain} (0.18), is spread evenly over the four regions, as \code{render\_force} spreads whatever the regions do not account for. A Faust effect sees only the summed force, not which keys are held, so two of the C++ behaviours need care. The withholding of a key's own force is linear: $\sum_k R_k(x - w\,x_k) = \sum_k R_k(x) - w\sum_k R_k(x_k)$, and the second term is computed by each voice from its own force, with the openness its key has in the shared bank, and handed to the body on a fifth channel. Driven by the C++ force of a C4 strike, the Faust bank and correction equal the C++ bank to $10^{-12}$ ($-248$\,dB). The opening of a key held silently is not modelled.
 
 \paragraph{Soundboard.} The C++ board is a modal sum followed by an equalizer. The obvious port evaluates the equalizer at each mode's frequency and keeps the modes. It fails, with an error 1.3 times the response itself: the equalizer removes three quarters of the narrow ripple, so it is not smooth at the scale of a mode, and it is precisely at the modal peaks that it cuts. The port keeps the 732 poles and fits their complex amplitudes by least squares to the C++ response. The Gram matrix of damped exponentials has a closed form,
 \begin{equation}
@@ -137,7 +182,7 @@ One draw is per strike: each string's bridge readout is scaled by $1 + 0.13u$, $
 \end{equation}
 and its conjugate counterpart, so no $67914 \times 1464$ matrix is formed; one Cholesky factorization serves every target. The shared response is fitted to $-25.5$\,dB.
 
-The regions are where the port went wrong first. \code{make\_soundboard\_regions} weights each mode per region (a random smooth mode shape along the bridge and a constant-power pan) before the equalizer. Weighting the \emph{fitted} amplitudes in the same way seemed equivalent. It is not: neighbouring modes overlap, the least-squares amplitudes are not unique, and the fit's cancellations between neighbours do not survive a weighting. Fed the exact region forces of a C4 strike, that board was 3.5 to 9.3\,dB too loud in the engine's output, depending on the channel and the time window; on a region's response the magnitude error is visible across the spectrum (Fig.~\ref{fig:board}). Each region's response (head and shared tail, as the engine hears an impulse in that region) is now fitted on its own, for both channels: eight targets, one Gram matrix, $-22.8$ to $-25.7$\,dB. A mode is driven by the complex combination $\sum_r A_{r,k}x_r$ of the region forces, which costs as much as two real drives. The imaging is fixed at the C++ defaults (spread 0.7, position depth 0.5); a light body without imaging, one resonator per mode for both channels, is provided.
+The regions are where the port went wrong first. \code{make\_soundboard\_regions} weights each mode per region (a random smooth mode shape along the bridge and a constant-power pan) before the equalizer. Weighting the \emph{fitted} amplitudes in the same way seemed equivalent. It is not: neighbouring modes overlap, the least-squares amplitudes are not unique, and the fit's cancellations between neighbours do not survive a weighting. Fed the exact region forces of a C4 strike, that board was 3.5 to 9.3\,dB too loud in the engine's output, depending on the channel and the time window; on a region's response the magnitude error is visible across the spectrum (Fig.~\ref{fig:board}). Each region's response (head and shared tail, as the engine hears an impulse in that region) is now fitted on its own, for both channels: eight targets, one Gram matrix, $-22.8$ to $-25.7$\,dB. A mode is driven by the complex combination $\sum_r A_{r,k}x_r$ of the region forces, which costs as much as two real drives: each mode has one complex one-pole per channel $c$, $s_{c}[n] = \lambda_k s_{c}[n-1] + \sum_r A^{c}_{r,k}\,x_r[n]$, read through $\mathrm{Im}\,s_c$, 1464 resonators in all, whose parameters are read from the tables once, at the first sample, in twelve \code{ondemand} domains of 61 modes. The stereo image is the difference between a region's left and right amplitudes. The imaging is fixed at the C++ defaults (spread 0.7, position depth 0.5). A light body without imaging sums the regions first and reads a single resonator $u$ per mode through two amplitudes, $\mathrm{Im}(a_Lu)$ and $\mathrm{Im}(a_Ru)$, for about a third of the board's cost.
 
 \begin{figure}[t]
 \centering
@@ -146,7 +191,7 @@ The regions are where the port went wrong first. \code{make\_soundboard\_regions
 \label{fig:board}
 \end{figure}
 
-\paragraph{Room and output.} \code{StereoReverb} is transcribed line by line: high-pass and predelay, six early taps, two diffusion all-passes per side, eight lines with an unnormalised Walsh--Hadamard feedback and one-pole damping. The DC filter, the gain and the soft limiter follow.
+\paragraph{Room and output.} A DC filter, a one-pole high-pass at 20\,Hz, comes first. \code{StereoReverb} is then transcribed line by line: the wet path is high-passed at 150\,Hz and predelayed by 12\,ms; six early taps between 7 and 31\,ms cross the channels; two diffusion all-passes per side feed eight lines of 1493 to 2423 samples with an unnormalised Walsh--Hadamard feedback, each damped by a one-pole low-pass at 5.5\,kHz and scaled for a 1.1\,s decay. The output is the dry signal plus $0.3\,(0.45\,e + 0.70\,\ell/\sqrt 8)$, with $e$ the early and $\ell$ the late part. The output gain (0.0011, from newtons to audio level) and the soft limiter follow; the limiter, unchanged below 0.8 with a $\tanh$ knee toward 1 above, is the only nonlinear stage, which is what allows the voices to be summed before the body.
 
 \section{Results}
 \label{sec:results}
