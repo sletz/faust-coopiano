@@ -2,12 +2,12 @@
 
 [Version française](README.fr.md) · **Play it in the browser: https://sletz.github.io/faust-coopiano/**
 
-A Faust model of [coopiano](../../coopiano), the physically modelled piano of
+A Faust model of [coopiano](https://github.com/peterc/coopiano), the physically modelled piano of
 `piano.hpp` / `instrument.hpp` (C++17, MIT): hammer, unison strings with two
 polarizations, longitudinal phantom partials, action noises, dampers and sustain
 pedal, sympathetic string register, a modal soundboard with bridge-region
 imaging, and the room reverb of `reverb.hpp`. Written for
-[faust-rs](../faust-rs) and checked with its `faustprobe` against the C++ model
+[faust-rs](https://github.com/grame-cncm/faust-rs) and checked with its `faustprobe` against the C++ model
 itself.
 
 ## Layout

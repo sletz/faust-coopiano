@@ -2,12 +2,12 @@
 
 [English version](README.md) · **Le jouer dans le navigateur : https://sletz.github.io/faust-coopiano/**
 
-Un modèle Faust de [coopiano](../../coopiano), le piano à modélisation physique
+Un modèle Faust de [coopiano](https://github.com/peterc/coopiano), le piano à modélisation physique
 de `piano.hpp` / `instrument.hpp` (C++17, MIT) : marteau, cordes à l'unisson à
 deux polarisations, partiels fantômes longitudinaux, bruits de mécanique,
 étouffoirs et pédale forte, résonance sympathique, table d'harmonie modale avec
 imagerie par régions du chevalet, et la réverbération de `reverb.hpp`. Écrit
-pour [faust-rs](../faust-rs) et vérifié avec son `faustprobe` contre le modèle
+pour [faust-rs](https://github.com/grame-cncm/faust-rs) et vérifié avec son `faustprobe` contre le modèle
 C++ lui-même.
 
 ## Organisation
