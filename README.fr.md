@@ -14,7 +14,7 @@ C++ lui-même.
 
 | Chemin | Contenu |
 |---|---|
-| `dsp/coopiano.lib` | le modèle (préfixe `cp`) : paramètres de touche, voix, corps |
+| `dsp/coopiano.lib` | le modèle (préfixe `cp`), documenté au format des faustlibraries : chaque fonction publique a son `#### Usage` et son `#### Test` (`make doctests`) |
 | `dsp/coopiano_tables.lib` | généré : tables tirées ou résolues par le modèle C++ |
 | `dsp/coopiano.dsp` | l'instrument polyphonique (`freq`/`gain`/`gate`, `effect = cp.body`) |
 | `dsp/coopiano_light.dsp` | le même, table d'harmonie sans imagerie |

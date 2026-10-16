@@ -5,6 +5,7 @@
 #                    reference tables and renders into build/ref (about 20 s)
 #   make tables      dsp/coopiano_tables.lib from build/ref (soundboard fit included)
 #   make check       compile every program with faustprobe
+#   make doctests    compile every `#### Test` of dsp/coopiano.lib (~10 min)
 #   make contact     hammer contact of the Faust voice against prep_note
 #   make notes       the Faust voice against render_bridge_force, key by key
 #   make engine      one key through the whole instrument against coopiano's Engine
@@ -35,7 +36,7 @@ RENDER_DIR = build/$(if $(LIGHT),light,full)
 VOICES ?= 16
 NATIVE ?= -O3 -ffast-math -march=native
 
-.PHONY: help ref tables check contact notes engine test render results figures paper clean
+.PHONY: help ref tables check doctests contact notes engine test render results figures paper clean
 help:
 	@sed -n '1,/^$$/p' Makefile | sed 's/^# \{0,1\}//'
 
@@ -53,6 +54,10 @@ tables:
 check:
 	@for f in dsp/coopiano_note.dsp dsp/coopiano_hammer.dsp dsp/coopiano_voice_out.dsp dsp/coopiano_body.dsp dsp/coopiano_body_light.dsp dsp/coopiano.dsp dsp/coopiano_light.dsp; do \
 	  $(FAUSTPROBE) --double -I dsp -n 1 --in zero --quiet $$f > /dev/null && echo "ok   $$f" || { echo "FAIL $$f"; exit 1; }; done
+
+doctests:
+	@mkdir -p build
+	$(PYTHON) scripts/check_doc_tests.py
 
 contact:
 	$(PYTHON) scripts/compare_contact.py

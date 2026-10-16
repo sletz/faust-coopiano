@@ -14,7 +14,7 @@ itself.
 
 | Path | What |
 |---|---|
-| `dsp/coopiano.lib` | the model (prefix `cp`): key parameters, voice, body |
+| `dsp/coopiano.lib` | the model (prefix `cp`), documented in the faustlibraries format: every public function has a `#### Usage` and a `#### Test` (`make doctests`) |
 | `dsp/coopiano_tables.lib` | generated: tables drawn or solved by the C++ model |
 | `dsp/coopiano.dsp` | the polyphonic instrument (`freq`/`gain`/`gate`, `effect = cp.body`) |
 | `dsp/coopiano_light.dsp` | the same with the soundboard without imaging |
