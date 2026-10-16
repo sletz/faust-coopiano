@@ -101,8 +101,29 @@ Keys the Pianoteq trial mutes (chromatic.mid, > 20 dB under the median): F#2 G#2
    C6    -84.1  -58.3   -27.4  -32.2   -32.8   -8.2
 
 7. Rendering time (offline, this machine; Pianoteq's includes its start-up)
-   chromatic    55.3 s of audio: Pianoteq   2.4 s ( 23.1x real time), coopiano   7.6 s (  7.3x)
-   notes       671.1 s of audio: Pianoteq  18.7 s ( 36.0x real time), coopiano  87.0 s (  7.7x)
-   pedal        79.3 s of audio: Pianoteq   2.5 s ( 31.9x real time), coopiano  10.6 s (  7.4x)
-   demo         15.0 s of audio: Pianoteq   1.2 s ( 12.4x real time), coopiano   2.4 s (  6.1x)
-   prelude      42.6 s of audio: Pianoteq   2.6 s ( 16.6x real time), coopiano   6.1 s (  7.0x)
+   chromatic    55.3 s of audio: pianoteq   3.2 s ( 17.4x real time), coopiano   7.6 s (  7.3x real time), faust  26.7 s (  2.1x real time)
+   notes       671.1 s of audio: pianoteq  18.1 s ( 37.0x real time), coopiano  91.3 s (  7.4x real time), faust 267.6 s (  2.5x real time)
+   pedal        79.3 s of audio: pianoteq   2.6 s ( 30.3x real time), coopiano  10.6 s (  7.5x real time), faust  35.0 s (  2.3x real time)
+   demo         15.0 s of audio: pianoteq   1.2 s ( 12.7x real time), coopiano   2.4 s (  6.2x real time), faust   9.2 s (  1.6x real time)
+   prelude      42.6 s of audio: pianoteq   2.6 s ( 16.1x real time), coopiano   6.2 s (  6.9x real time), faust  23.3 s (  1.8x real time)
+
+8. The Faust port (tools/render.cpp: this repository's voice and body compiled to C++
+   by faust-rs) against the C++ coopiano, on the same scores: every measure above
+   taken on both, Faust minus C++ (ratios in %). Largest difference, where, and median.
+   inharmonicity B                       -1.15 %     (A6)           median 0.10 %, 14 values
+   tuning (fitted f0)                    +1.00 cents (C6)           median 0.07 cents, 14 values
+   level (re C4 v=90)                    +5.87 dB    (A0 v=127)     median 0.44 dB, 96 values
+   brightness (centroid)                +25.78 %     (A7 v=115)     median 0.36 %, 96 values
+   T60 level, early                     +13.51 %     (C1)           median 0.66 %, 16 values
+   T60 level, late                       -6.53 %     (C1)           median 2.48 %, 12 values
+   T60 partial 1                         -4.38 %     (C3)           median 0.39 %, 12 values
+   T60 partial 2                        -14.15 %     (A0)           median 1.68 %, 11 values
+   T60 partial 3                         -9.18 %     (C2)           median 1.55 %, 10 values
+   T60 partial 4                        -23.96 %     (C1)           median 3.76 %, 10 values
+   release, -40 dB                       +0.64 s     (A6)           median 0.01 s, 16 values
+   balance L-R                           -0.69 dB    (C8)           median 0.06 dB, 16 values
+   pedal: tail, pedal up                -26.48 dB    (C2)           median 16.10 dB, 5 values
+   pedal: tail, pedal down               +0.22 dB    (C6)           median 0.03 dB, 5 values
+   pedal: halo, pedal down               -0.64 dB    (C2)           median 0.31 dB, 5 values
+   prelude                            correlation 0.438 / 0.444 (C++ / Faust), mono sum -1.44 / -1.42 dB
+   demo                               correlation 0.438 / 0.438 (C++ / Faust), mono sum -1.49 / -1.50 dB

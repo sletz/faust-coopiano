@@ -15,7 +15,8 @@ differences come from the instruments, not from the scores.
   prelude.mid    J.S. Bach, Prelude in C major BWV 846, bars 1-11, for listening
 
 The note list of notes.mid is written to notes.txt (onset key velocity hold),
-which scripts/pianoteq_analyze.py reads back."""
+which scripts/pianoteq_analyze.py reads back. Every file X.mid also has its
+X.score, the same events for tools/render.cpp (the Faust model)."""
 import os
 import struct
 
@@ -53,6 +54,28 @@ def write_midi(path, events):
     with open(path, "wb") as f:
         f.write(b"MThd" + struct.pack(">IHHH", 6, 0, 1, DIVISION))
         f.write(b"MTrk" + struct.pack(">I", len(track)) + track)
+    write_score(path[:-4] + ".score", events)
+
+
+def write_score(path, events):
+    """The same events as a score of tools/render.cpp (the Faust model): notes
+    with velocity MIDI/127, as coopiano reads MIDI files, and the pedal. Its
+    first line switches the body's reverb off (`control 0 reverb/mix 0`), as
+    GP_NO_REVERB=1 does for coopiano; pianoteq_render.sh drops it for the
+    renders with the room."""
+    lines, held = ["control 0 reverb/mix 0"], {}
+    for t, msg in events:
+        kind = msg[0] & 0xF0
+        at = round(t / TICK) * TICK  # the MIDI file's time grid
+        if kind == 0x90 and msg[2] > 0:
+            held.setdefault(msg[1], []).append((at, msg[2]))
+        elif kind in (0x80, 0x90):
+            on, vel = held[msg[1]].pop(0)
+            lines.append("note %.6f %d %.6f %.6f" % (on, msg[1], vel / 127, at - on))
+        elif kind == 0xB0 and msg[1] == 64:
+            lines.append("pedal %.6f %.6f" % (at, msg[2] / 127))
+    with open(path, "w") as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def note(t, key, vel, hold):

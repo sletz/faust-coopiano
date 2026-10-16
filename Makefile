@@ -25,8 +25,8 @@
 #                    serve the repository and open http://localhost:PORT/web/
 #   make web-pages   publish the web version on the gh-pages branch of origin
 #                    (GitHub Pages: https://sletz.github.io/faust-coopiano/)
-#   make pianoteq    coopiano (C++) against Pianoteq 9 on the same MIDI files: renders
-#                    into build/pianoteq, then pianoteq/results.txt and figures (~4 min;
+#   make pianoteq    coopiano (C++ and Faust) against Pianoteq 9 on the same scores: renders
+#                    into build/pianoteq, then pianoteq/results.txt and figures (~13 min;
 #                    run scripts/pianoteq_preset.sh once first, see pianoteq/README.md)
 #   make clean       remove build/
 #   JOBS=n           renders run side by side by contact, notes and keyboard (default 4;

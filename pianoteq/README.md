@@ -1,7 +1,8 @@
 # coopiano face à Pianoteq
 
-Mesures comparées de coopiano (le modèle C++ que ce dépôt porte en Faust) et de
-Pianoteq 9, sur les mêmes fichiers MIDI, rendus hors ligne et à sec. Chiffres
+Mesures comparées de coopiano (le modèle C++ que ce dépôt porte en Faust), de son
+portage Faust et de Pianoteq 9, sur les mêmes partitions, rendues hors ligne et à
+sec. Chiffres
 complets : [`results.txt`](results.txt). Scripts : `scripts/pianoteq_*.py|sh`
 (voir « Reproduire »).
 
@@ -26,6 +27,11 @@ raison. Là où un jugement demanderait un vrai piano, ce document le dit.
 | Stéréo sur la musique | corrélation 0,44, −1,4 dB en mono | 0,43, −1,5 dB | identique |
 | Rendu hors ligne, cette machine | 6–8 × le temps réel | 12–36 × | Pianoteq 2–5 × plus rapide |
 
+Le portage Faust reproduit le C++ sur toutes ces mesures : écarts médians de 0,4 dB
+sur les niveaux, 0,4 % sur la brillance, 0,1 % sur l'inharmonicité et moins de 4 %
+sur les décroissances. Il s'en écarte en deux endroits : A0 et C1 fortissimo, de 2 à
+6 dB plus forts, et la fin d'un étouffement, pédale levée (§ 8).
+
 ## Ce qui est comparé
 
 - **coopiano** : le programme C++ d'origine (`../../coopiano`, commit `bba9e06`),
@@ -34,6 +40,11 @@ raison. Là où un jugement demanderait un vrai piano, ce document le dit.
   flottants 32 bits au lieu d'entiers 16 bits (`scripts/coopiano_float_wav.py`,
   voir « En passant » plus bas). La normalisation par fichier (crête à 0,89) est
   conservée : seuls les niveaux relatifs ont un sens.
+- **Le portage Faust** de ce dépôt : la voix et le corps compilés en C++ par faust-rs
+  et joués par `tools/render.cpp` (`make render`, 16 voix), sur les mêmes
+  évènements que les fichiers MIDI (`X.score` à côté de `X.mid`, vélocité MIDI /
+  127), avec `control 0 reverb/mix 0` pour un corps sans réverbération. Sur les
+  figures, ses courbes sont en pointillés verts.
 - **Pianoteq 9.2.5, version d'essai**, preset « NY Steinway D Classical » avec sa
   réverbération, son délai (effet 1) et son limiteur coupés
   (`scripts/pianoteq_preset.sh`, par le serveur JSON-RPC de Pianoteq). Ses
@@ -167,6 +178,52 @@ rapide. L'essentiel du coût de coopiano est sa table (732 modes, imagée par
 région) et son registre sympathique, calculés en permanence : en temps réel,
 une voix coûte 3 % d'un cœur et le corps 36 à 40 % (`results/cost.txt`).
 
+### 8. Le portage Faust face au C++
+
+Chaque mesure ci-dessus, prise aussi sur le portage Faust (`results.txt`, § 8 :
+plus grand écart, où, et médiane) :
+
+| mesure | écart médian | plus grand écart |
+|---|---|---|
+| inharmonicité B | 0,10 % | −1,2 % (A6) |
+| accord (f0 ajusté) | 0,07 cent | +1,0 cent (C6) |
+| niveau, 16 touches × 6 vélocités | 0,44 dB | +5,9 dB (A0, v=127) |
+| brillance | 0,36 % | +26 % (A7, v=115 : un centroïde sous le fondamental, fait des bruits d'action) |
+| T60 du niveau, début / fin | 0,7 % / 2,5 % | +14 % / −7 % (C1) |
+| T60 des partiels 1 à 4 | 0,4 à 3,8 % | −24 % (partiel 4 de C1) |
+| relâchement, −40 dB | 0,01 s | +0,6 s (A6, sans étouffoir) |
+| équilibre G − D | 0,06 dB | −0,7 dB (C8) |
+| pédale enfoncée : queue / halo | 0,03 dB / 0,31 dB | +0,2 dB / −0,6 dB |
+| pédale levée : queue 1–4 s | 16 dB | −26 dB (C2) |
+| musique : corrélation G/D, perte en mono | | 0,438 / 0,444, −1,44 / −1,42 dB |
+
+Deux écarts dépassent ce que les validations du dépôt avaient vu (elles étaient
+faites à vélocité 0,5) :
+
+- **A0 et C1 fortissimo** : le portage est plus fort de 1,7 à 5,9 dB sur les 0,3
+  premières secondes à partir de v=90 (A0 : +1,7, +3,0, +5,9 dB à v=90, 115, 127 ;
+  C1 : +3,1, +4,9, +5,8 dB). À A1 et au-dessus, les niveaux restent à 1,7 dB près.
+  Cause non cherchée ici.
+- **La fin d'un étouffement**, pédale levée, après une note piquée (0,15 s) : les
+  deux sont encore ensemble 0,1 s après le relâchement (C4 : −29 dB de l'attaque),
+  puis, jusqu'à 1 s, le C++ garde une composante 15 à 25 dB au-dessus du portage
+  (C4 : −47,5 contre −71,5 dB à 0,5 s) ; à 2 s, les deux se rejoignent. Sur les
+  notes tenues 5 s, le temps de chute de 40 dB reste le même (0,01 s d'écart médian).
+  Le portage a pourtant le bruit d'étouffoir, le choc et le frottement du feutre
+  (`cp.noises`). Cause non cherchée non plus.
+
+En chemin, `tools/render.cpp` s'est révélé ignorer la vélocité : il rangeait les
+contrôles par étiquette seule, et l'étiquette « gain » de la vélocité était écrasée
+par celle de `resonance/gain`. Toutes les notes de `make render` jouaient donc à
+0,5. Il range maintenant les contrôles par chemin, comme la page web ; le coût
+mesuré par `scripts/cost.sh` n'en dépend pas (3,0 % par voix et 36 à 40 % pour le
+corps, contre 3,1 % et les mêmes chiffres avant).
+
+Hors ligne, le portage rend 1,6 à 2,5 fois plus vite que le temps réel, contre 6 à 8
+fois pour le C++ : le C++ joue sa table d'harmonie comme une réponse
+impulsionnelle (convolution partitionnée, `streaming_soundboard.hpp`), le portage
+comme 732 résonateurs modaux par canal.
+
 ## Ce qu'on peut en retenir
 
 - **Ils s'accordent** sur la forme de l'inharmonicité et de l'accord étiré, les
@@ -179,6 +236,8 @@ une voix coûte 3 % d'un cœur et le corps 36 à 40 % (`results/cost.txt`).
   qui ne raccourcit plus dans le fort. C'est l'endroit où chercher en premier (lois
   de raideur et d'exposant du feutre ; `[hammer] stiffness_scale` et
   `velocity_exponent` dans `default.ini`).
+- **Le portage Faust** porte ces écarts tels quels : face à Pianoteq, il se comporte
+  comme le C++, sauf l'extrême grave fortissimo et la fin d'un étouffement (§ 8).
 - Lequel est le plus juste ne peut se dire qu'avec des enregistrements d'un vrai
   piano ; les scripts acceptent n'importe quel rendu WAV à la place de Pianoteq.
 
@@ -196,18 +255,20 @@ effet ; c'est une remarque pour coopiano lui-même, pas pour le portage.
 ## Écoute
 
 `scripts/pianoteq_analyze.py` écrit dans `build/pianoteq/listen/` le prélude et
-la démo de chaque instrument, à sec (`*_dry_*`) et avec sa propre salle
-(`*_room_*` : réverbération de coopiano, preset de Pianoteq intact), tous au même
+la démo de chaque instrument (C++, Faust, Pianoteq), à sec (`*_dry_*`) et avec sa
+propre salle (`*_room_*` : réverbération de coopiano, preset de Pianoteq intact),
+tous au même
 niveau RMS (−20 dBFS) pour que la sonie ne décide pas. Ces fichiers ne sont pas
 versionnés : ce sont des rendus d'une version d'essai de Pianoteq, et ils pèsent
-120 Mo.
+plus de 100 Mo.
 
 ## Reproduire
 
 ```bash
 scripts/pianoteq_preset.sh         # une fois : écrit le preset sec de Pianoteq
-make pianoteq                      # rendus (~4 min), puis mesures et figures
+make pianoteq                      # rendus (~13 min), puis mesures et figures
 ```
 
 `COOPIANO` désigne le dépôt coopiano (par défaut `../../coopiano`), `PIANOTEQ`
-l'exécutable de Pianoteq et `PIANOTEQ_FXP` le preset.
+l'exécutable de Pianoteq et `PIANOTEQ_FXP` le preset ; le rendu du portage
+demande `build/full/render` (`make render`, donc faust-rs).

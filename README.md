@@ -23,7 +23,7 @@ itself.
 | `scripts/` | table generation (soundboard fit) and the comparisons |
 | `tools/render.cpp` | native offline renderer of a score (`scores/demo.txt`) |
 | `web/` | the web version: page, keyboard, MIDI input, AudioWorklet host of the faust-rs wasm (`make web`, `make web-serve`) |
-| `pianoteq/` | coopiano against Pianoteq 9 on the same MIDI files: report (in French), measurements and figures (`make pianoteq`) |
+| `pianoteq/` | coopiano (C++ and Faust) against Pianoteq 9 on the same scores: report (in French), measurements and figures (`make pianoteq`) |
 
 ## Use
 
@@ -303,6 +303,9 @@ the two agree on the shape of inharmonicity and stretch tuning, mid-register dec
 the stereo image; coopiano's treble at velocity 20 is 25-38 dB quieter (relative to each one's C4), its brightness stops growing
 above velocity 64 (the hammer's contact time stops shortening), its sympathetic halo with
 the pedal is 17-25 dB weaker and its dampers are faster. Pianoteq renders 2-5 times faster.
+The Faust port, measured the same way, follows the C++ (median differences 0.4 dB in level,
+0.4 % in brightness, under 4 % in decay) except A0-C1 fortissimo (up to +6 dB) and the end
+of a damping with the pedal up.
 
 ## Known differences
 

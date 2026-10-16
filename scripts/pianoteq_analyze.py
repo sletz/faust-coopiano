@@ -44,7 +44,10 @@ from scipy.io import wavfile
 
 D = "build/pianoteq"
 OUT = "pianoteq"
-INSTR = [("coopiano", "coopiano", "C0"), ("pianoteq", "Pianoteq", "C3")]
+# (render suffix, label, colour, line style): the C++ coopiano, its Faust port
+# (tools/render.cpp) and Pianoteq.
+INSTR = [("coopiano", "coopiano (C++)", "C0", "-"), ("faust", "coopiano (Faust)", "C2", "--"),
+         ("pianoteq", "Pianoteq", "C3", "-")]
 NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 plt.rcParams.update({"font.size": 8, "axes.linewidth": 0.6, "lines.linewidth": 0.9,
                      "figure.dpi": 200, "savefig.bbox": "tight"})
@@ -257,7 +260,7 @@ KEYS = sorted({int(n[1]) for n in notes})
 VELS = sorted({int(n[2]) for n in notes})
 DECAY_HOLD = 15.0
 data = {}
-for stem, label, _ in INSTR:
+for stem, label, _, _ in INSTR:
     sr, x = load(f"notes_{stem}")
     res = [analyze_note(x, sr, *n) for n in notes]
     ref = next(r["level"] for r in res if r["key"] == 60 and r["vel"] == 90)
@@ -377,22 +380,69 @@ for k in sorted({p["key"] for p in data["coopiano"]["pedal"]}):
 say()
 
 say("7. Rendering time (offline, this machine; Pianoteq's includes its start-up)")
+TIMES = {}
 for l in open(f"{D}/timing.txt"):
-    s, _, tp, _, tc = l.split()
-    sr_, xx = load(f"{s}_coopiano")
+    f = l.split()
+    TIMES[f[0]] = dict(zip(f[1::2], map(float, f[2::2])))
+    sr_, xx = load(f"{f[0]}_coopiano")
     dur = xx.shape[0] / sr_
-    say("   %-10s %6.1f s of audio: Pianoteq %5.1f s (%5.1fx real time), coopiano %5.1f s (%5.1fx)" % (
-        s, dur, float(tp), dur / float(tp), float(tc), dur / float(tc)))
+    say("   %-10s %6.1f s of audio: " % (f[0], dur) + ", ".join(
+        "%s %5.1f s (%5.1fx real time)" % (who, t, dur / t) for who, t in TIMES[f[0]].items()))
+say()
+say("8. The Faust port (tools/render.cpp: this repository's voice and body compiled to C++")
+say("   by faust-rs) against the C++ coopiano, on the same scores: every measure above")
+say("   taken on both, Faust minus C++ (ratios in %). Largest difference, where, and median.")
+
+
+def compare(title, unit, pairs):
+    pairs = [(w, d) for w, d in pairs if d is not None and np.isfinite(d)]
+    if not pairs:
+        return
+    where, big = max(pairs, key=lambda p: abs(p[1]))
+    med = float(np.median([abs(d) for _, d in pairs]))
+    say("   %-34s %+8.2f %-5s (%s)%s median %.2f %s, %d values" % (
+        title, big, unit, where, " " * max(1, 12 - len(where)), med, unit, len(pairs)))
+
+
+def ratio(a, b):
+    return 100 * (a / b - 1) if a and b and np.isfinite(a) and np.isfinite(b) and b > 0 else None
+
+
+def fitted(stem, k):
+    return get(stem, k, 64)["fit"]
+
+
+compare("inharmonicity B", "%", [(name(k), ratio(fitted("faust", k)["B"], fitted("coopiano", k)["B"]))
+                                 for k in KEYS if fitted("faust", k) and fitted("coopiano", k) and k < 108])
+compare("tuning (fitted f0)", "cents", [(name(k), fitted("faust", k)["cents"] - fitted("coopiano", k)["cents"])
+                                        for k in KEYS if fitted("faust", k) and fitted("coopiano", k) and k < 108])
+compare("level (re C4 v=90)", "dB", [("%s v=%d" % (name(k), v), get("faust", k, v)["level"] - get("coopiano", k, v)["level"])
+                                     for k in KEYS for v in VELS])
+compare("brightness (centroid)", "%", [("%s v=%d" % (name(k), v), ratio(get("faust", k, v)["centroid"], get("coopiano", k, v)["centroid"]))
+                                       for k in KEYS for v in VELS])
+for field, title in (("early", "T60 level, early"), ("late", "T60 level, late")):
+    compare(title, "%", [(name(k), ratio(data["faust"]["decay"][k][field], data["coopiano"]["decay"][k][field])) for k in KEYS])
+for n in range(4):
+    compare("T60 partial %d" % (n + 1), "%", [(name(k), ratio(data["faust"]["decay"][k]["partials"][n],
+                                                              data["coopiano"]["decay"][k]["partials"][n])) for k in KEYS])
+compare("release, -40 dB", "s", [(name(k), get("faust", k, 90)["release"] - get("coopiano", k, 90)["release"]) for k in KEYS])
+compare("balance L-R", "dB", [(name(k), get("faust", k, 90)["balance"] - get("coopiano", k, 90)["balance"]) for k in KEYS])
+for field, down, title in (("tail", 0, "pedal: tail, pedal up"), ("tail", 1, "pedal: tail, pedal down"), ("halo", 1, "pedal: halo, pedal down")):
+    compare(title, "dB", [(name(q["key"]), q[field] - next(c[field] for c in data["coopiano"]["pedal"] if c["key"] == q["key"] and c["down"] == down))
+                          for q in data["faust"]["pedal"] if q["down"] == down])
+for piece in ("prelude", "demo"):
+    (cc, cm), (fc, fm) = data["coopiano"]["music"][piece], data["faust"]["music"][piece]
+    say("   %-34s correlation %.3f / %.3f (C++ / Faust), mono sum %+.2f / %+.2f dB" % (piece, cc, fc, cm, fm))
 open(f"{OUT}/results.txt", "w").write("\n".join(REPORT) + "\n")
 
 # ------------------------------------------------------------------ figures
 keys = np.array(KEYS)
 mk = [k for k in KEYS if name(k) in model]
 fig, axes = plt.subplots(1, 2, figsize=(6.8, 2.2))
-for stem, label, col in INSTR:
+for stem, label, col, ls in INSTR:
     fits = [get(stem, k, 64)["fit"] for k in KEYS]
-    axes[0].semilogy(keys, [f["B"] if f and f["B"] > 0 else np.nan for f in fits], "o-", color=col, ms=3, label=label)
-    axes[1].plot(keys, [f["cents"] if f else np.nan for f in fits], "o-", color=col, ms=3, label=label)
+    axes[0].semilogy(keys, [f["B"] if f and f["B"] > 0 else np.nan for f in fits], "o", ls=ls, color=col, ms=3, label=label)
+    axes[1].plot(keys, [f["cents"] if f else np.nan for f in fits], "o", ls=ls, color=col, ms=3, label=label)
 axes[0].semilogy(mk, [model[name(k)][1] for k in mk], "k:", lw=0.8, label="coopiano model")
 axes[1].plot(mk, [1200 * np.log2(model[name(k)][0] / et(k)) for k in mk], "k:", lw=0.8, label="coopiano model")
 axes[0].set_title("Inharmonicity B (velocity 64)")
@@ -405,8 +455,8 @@ fig.savefig(f"{OUT}/fig_inharmonicity.png")
 
 fig, axes = plt.subplots(1, 4, figsize=(6.8, 2.0), sharey=True)
 for ax, k in zip(axes, (36, 60, 84, 108)):
-    for stem, label, col in INSTR:
-        ax.plot(VELS, [get(stem, k, v)["level"] for v in VELS], "o-", color=col, ms=3, label=label)
+    for stem, label, col, ls in INSTR:
+        ax.plot(VELS, [get(stem, k, v)["level"] for v in VELS], "o", ls=ls, color=col, ms=3, label=label)
     ax.set_title(name(k))
     ax.set_xlabel("MIDI velocity")
     ax.grid(alpha=0.3)
@@ -416,8 +466,8 @@ fig.savefig(f"{OUT}/fig_dynamics.png")
 
 fig, axes = plt.subplots(1, 3, figsize=(6.8, 2.1))
 for ax, k in zip(axes, (21, 36, 60)):
-    for stem, label, col in INSTR:
-        ax.plot(VELS, [get(stem, k, v)["centroid"] / et(k) for v in VELS], "o-", color=col, ms=3, label=label)
+    for stem, label, col, ls in INSTR:
+        ax.plot(VELS, [get(stem, k, v)["centroid"] / et(k) for v in VELS], "o", ls=ls, color=col, ms=3, label=label)
     ax.set_title(name(k))
     ax.set_xlabel("MIDI velocity")
     ax.grid(alpha=0.3)
@@ -429,27 +479,28 @@ fig, axes = plt.subplots(2, 3, figsize=(6.8, 3.6), sharey=True)
 for j, k in enumerate((36, 60, 84)):
     for i, v in enumerate((40, 127)):
         ax = axes[i, j]
-        w = 0.38
-        for s, (stem, label, col) in enumerate(INSTR):
+        w = 0.27
+        for s, (stem, label, col, _) in enumerate(INSTR):
             a = get(stem, k, v).get("amps")
             if a is not None:
-                ax.bar(np.arange(1, a.size + 1) + (s - 0.5) * w, a + 60, w, bottom=-60, color=col, label=label)
+                ax.bar(np.arange(1, a.size + 1) + (s - 1) * w, a + 60, w, bottom=-60, color=col, label=label)
         ax.set_title("%s v=%d" % (name(k), v))
         ax.set_ylim(-60, 2)
         ax.grid(alpha=0.3, axis="y")
     axes[1, j].set_xlabel("partial")
 axes[0, 0].set_ylabel("dB re strongest")
 axes[1, 0].set_ylabel("dB re strongest")
-axes[0, 0].legend(frameon=False, loc="upper right")
+axes[0, 2].legend(frameon=False, loc="upper right")
 fig.subplots_adjust(hspace=0.45)
 fig.savefig(f"{OUT}/fig_partials.png")
 
 fig, axes = plt.subplots(1, 2, figsize=(6.8, 2.2))
-for stem, label, col in INSTR:
+for stem, label, col, ls in INSTR:
     dec = data[stem]["decay"]
-    axes[0].semilogy(keys, [dec[k]["partials"][0] for k in KEYS], "o-", color=col, ms=3, label=label + ", partial 1")
-    axes[0].semilogy(keys, [dec[k]["late"] for k in KEYS], "s--", color=col, ms=2.5, label=label + ", level (late)")
-    axes[1].semilogy(keys, [min(get(stem, k, 90)["release"], 2.0) for k in KEYS], "o-", color=col, ms=3, label=label)
+    axes[0].semilogy(keys, [dec[k]["partials"][0] for k in KEYS], "o", ls=ls, color=col, ms=3, label=label + ", partial 1")
+    if stem != "faust":
+        axes[0].semilogy(keys, [dec[k]["late"] for k in KEYS], "s:", color=col, ms=2.5, label=label + ", level (late)")
+    axes[1].semilogy(keys, [min(get(stem, k, 90)["release"], 2.0) for k in KEYS], "o", ls=ls, color=col, ms=3, label=label)
 axes[0].semilogy(mk, [model[name(k)][2] for k in mk], "k:", lw=0.8, label="coopiano model, partial 1")
 axes[0].set_title("T60 while held (s), velocity 90")
 axes[1].set_title("Release: time to fall 40 dB (s, 2 = not within 1.95 s)")
@@ -460,10 +511,10 @@ axes[0].legend(frameon=False, fontsize=6)
 axes[1].legend(frameon=False)
 fig.savefig(f"{OUT}/fig_decay.png")
 
-wav = {stem: load(f"notes_{stem}") for stem, _, _ in INSTR}
-fig, axes = plt.subplots(2, 3, figsize=(6.8, 3.8))
+wav = {stem: load(f"notes_{stem}") for stem, _, _, _ in INSTR}
+fig, axes = plt.subplots(3, 3, figsize=(6.8, 5.6))
 for j, (k, fmax) in enumerate(((36, 4000), (60, 6000), (84, 10000))):
-    for i, (stem, label, _) in enumerate(INSTR):
+    for i, (stem, label, _, _) in enumerate(INSTR):
         sr, x = wav[stem]
         a = int(get(stem, k, 90)["on"] * sr)
         seg = x[a - int(0.05 * sr):a + int(4.0 * sr)]
@@ -477,7 +528,7 @@ for j, (k, fmax) in enumerate(((36, 4000), (60, 6000), (84, 10000))):
         ax.imshow(S[fr <= fmax], origin="lower", aspect="auto", cmap="magma", vmin=-80, vmax=0,
                   extent=[-0.05, -0.05 + S.shape[1] * hop / sr, 0, fmax / 1000])
         ax.set_title("%s %s v=90" % (label, name(k)))
-        if i == 1:
+        if i == 2:
             ax.set_xlabel("s")
         if j == 0:
             ax.set_ylabel("kHz")
@@ -486,7 +537,7 @@ fig.savefig(f"{OUT}/fig_spectrograms.png")
 # ------------------------------------------------------------------ listening
 os.makedirs(f"{D}/listen", exist_ok=True)
 for piece in ("prelude", "demo"):
-    for stem, _, _ in INSTR:
+    for stem, _, _, _ in INSTR:
         for src, tag in ((f"{piece}_{stem}", "dry"), (f"listen/{piece}_{stem}_room", "room")):
             if not os.path.exists(f"{D}/{src}.wav"):
                 continue
