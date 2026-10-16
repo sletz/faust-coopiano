@@ -322,8 +322,9 @@ médium et l'image stéréo ; l'aigu de coopiano à vélocité 20 est 25 à 38 d
 cesse de croître au-dessus de la vélocité 64 (le contact du marteau ne raccourcit plus), son
 halo sympathique pédale enfoncée est 17 à 25 dB plus faible et ses étouffoirs plus rapides.
 Pianoteq rend 2 à 5 fois plus vite. Le portage Faust, mesuré de la même façon, suit le C++
-(écarts médians de 0,4 dB sur les niveaux, 0,4 % sur la brillance, moins de 4 % sur les
-décroissances), sauf A0–C1 fortissimo (jusqu'à +6 dB) et la fin d'un étouffement pédale levée.
+(écarts médians de 0,5 dB sur les niveaux, 0,3 % sur la brillance, moins de 3 % sur les
+décroissances), sauf la fin d'un étouffement pédale levée (la résonance de l'égaliseur de la
+table C++, voir les différences connues).
 
 ## Différences connues
 
@@ -333,8 +334,11 @@ décroissances), sauf A0–C1 fortissimo (jusqu'à +6 dB) et la fin d'un étouff
 - **Marteau à 44,1 kHz** au lieu de 32 fois plus : exact à 1 % sauf pour les
   contacts les plus courts de l'aigu (do 8 fortissimo).
 - **Fantômes** : distance entre partenaires jusqu'à 2 (`piano.hpp` : 3, le terme
-  suivant est 15 dB plus bas) ; la borne d'amplitude par paire
-  (`bound_phantom`) et le seuil à -80 dB ne sont pas appliqués.
+  suivant est 15 dB plus bas) ; le seuil à -80 dB n'est pas appliqué. La borne
+  par paire (`bound_phantom`) l'est, une fois par frappe, à partir des
+  amplitudes des parents à la fin du contact, là où le C++ les prend à la
+  passation ; sans elle, A0 et C1 fortissimo étaient 2 à 3 dB plus forts au
+  chevalet et jusqu'à 6 dB plus forts à travers le corps.
 - **Tirages aléatoires** : l'écart de lecture des cordes à l'unisson est tiré à
   chaque frappe (les tests imposent les tirages de la graine C++) ; les bruits
   de mécanique sont d'autres réalisations du même bruit filtré ; le léger
@@ -348,8 +352,18 @@ décroissances), sauf A0–C1 fortissimo (jusqu'à +6 dB) et la fin d'un étouff
   leur somme).
 - **Table d'harmonie** : imagerie figée aux valeurs C++ par défaut (spread 0,7,
   position_depth 0,5) et réglages de la table figés à `default.ini`
-  (`make tables` après les avoir changés dans `ref/dump.cpp`) ; la fin de queue
-  après un relâchement (plus de 60 dB sous la note) est moins bien ajustée.
+  (`make tables` après les avoir changés dans `ref/dump.cpp`). Après un
+  relâchement, la table C++ continue de sonner, surtout entre 300 Hz et 1 kHz :
+  son égaliseur (`flatten_ir`), calculé sur une grille FFT de 0,34 Hz, relève de
+  jusqu'à 20 dB les trois quarts des creux étroits de la table au-dessus de
+  450 Hz, et ces pics étroits résonnent environ 2 s, jusqu'à la coupure de la
+  réponse à 1,4 s. L'ajustement modal, sur les modes C++ (T60 d'au plus 0,45 s),
+  ne peut pas porter cette résonance, et 64 résonateurs ajustés dessus n'y
+  gagnent que 1 à 2 dB : la réponse de la table est à -48, -56, -72 dB (C++)
+  contre -65, -92, -158 dB (Faust) sur 0,3-0,5, 0,5-0,75 et 1-1,4 s, relativement
+  à ses 50 premières ms. Après un do 4 piqué, pédale levée, l'instrument est
+  15 à 25 dB sous le C++ dès 0,35 s après le relâchement ; la réverbération de la
+  salle le masque environ une seconde après le relâchement.
 - **Rôle de l'hôte** (vol de voix, arrêt sur niveau, `fade_tail`) : c'est celui
   de l'architecture polyphonique ; `tools/render.cpp` arrête une voix relâchée
   après une demi-seconde sous 1e-6 N.

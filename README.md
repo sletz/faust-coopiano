@@ -303,9 +303,9 @@ the two agree on the shape of inharmonicity and stretch tuning, mid-register dec
 the stereo image; coopiano's treble at velocity 20 is 25-38 dB quieter (relative to each one's C4), its brightness stops growing
 above velocity 64 (the hammer's contact time stops shortening), its sympathetic halo with
 the pedal is 17-25 dB weaker and its dampers are faster. Pianoteq renders 2-5 times faster.
-The Faust port, measured the same way, follows the C++ (median differences 0.4 dB in level,
-0.4 % in brightness, under 4 % in decay) except A0-C1 fortissimo (up to +6 dB) and the end
-of a damping with the pedal up.
+The Faust port, measured the same way, follows the C++ (median differences 0.5 dB in level,
+0.3 % in brightness, under 3 % in decay) except the end of a damping with the pedal up
+(the C++ soundboard's equalizer ring, see Known differences).
 
 ## Known differences
 
@@ -315,8 +315,11 @@ of a damping with the pedal up.
 - **Hammer at 44.1 kHz** instead of 32x: exact to 1 % except the shortest treble
   contacts (C8 fortissimo).
 - **Phantoms**: partner distance up to 2 (`piano.hpp`: 3, the next term is
-  15 dB down); the per-pair amplitude bound (`bound_phantom`) and the -80 dB
-  threshold are not applied.
+  15 dB down); the -80 dB pair threshold is not applied. The per-pair bound
+  (`bound_phantom`) is applied once per strike, from the parents' amplitudes at
+  the end of the contact, where the C++ takes them at the hand-over; without it,
+  A0 and C1 fortissimo were 2-3 dB louder at the bridge and up to 6 dB louder
+  through the body.
 - **Random draws**: the per-strike unison readout spread is drawn at each strike
   (the tests set the C++ seed's draws); action noises are other realizations of
   the same filtered noise; the second polarization's tiny detune uses a hash.
@@ -327,8 +330,17 @@ of a damping with the pedal up.
   cannot see the others, and the body sees only their sum).
 - **Soundboard**: imaging fixed at the C++ defaults (spread 0.7, position depth
   0.5) and board voicing fixed at `default.ini` (re-run `make tables` after
-  changing them in `ref/dump.cpp`); the late tail after a release (more than
-  60 dB below the note) is fitted less well.
+  changing them in `ref/dump.cpp`). After a release, the C++ board rings on,
+  mostly between 300 Hz and 1 kHz: its equalizer (`flatten_ir`), designed on a
+  0.34 Hz FFT grid, lifts three quarters of the board's narrow nulls above
+  450 Hz by up to 20 dB, and those narrow peaks ring for about 2 s until the
+  response is cut at 1.4 s. The modal fit, on the C++ modes (T60 at most
+  0.45 s), cannot carry that ring, and 64 resonators fitted to it gain only
+  1-2 dB: the board's response is at -48, -56, -72 dB (C++) against -65, -92,
+  -158 dB (Faust) over 0.3-0.5, 0.5-0.75 and 1-1.4 s, relative to its first
+  50 ms. After a C4 staccato with the pedal up the instrument is 15-25 dB under
+  the C++ from 0.35 s after the release; the room reverb masks it for about a
+  second after the release.
 - **Host duties** (voice stealing and level culling, `fade_tail`) belong to the
   polyphonic architecture; `tools/render.cpp` stops a released voice after half
   a second below 1e-6 N.

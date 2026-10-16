@@ -91,10 +91,11 @@ faust-rs.
 | 13 | `porting/MEMOIZATION.md` décrit à tort les environnements C++ comme hash-consés | documentation | basse | — |
 | 14 | Code wasm 1,3 à 1,8 fois plus lent que le C++ du même programme compilé par Emscripten | performance d'exécution | moyenne (version web) | à comparer au wasm du C++ |
 | 15 | Somme constante + commande + signal groupée autrement que dans l'amont 2.90 : partie lente non hissée, arrondi différent | performance d'exécution + parité numérique | moyenne | la référence épinglée (2.84.3) groupe comme faust-rs ; l'amont 2.90 a changé (`d4d51e5ed`) |
+| 16 | Variable de contrôle déclarée dans un domaine `ondemand` et lue hors de lui (FRS-FIR-0001, « use of undeclared variable ») | bug (génération FIR) | moyenne | — |
 
-Les points 1 à 9 ont un reproducteur minimal. Les points 10 à 12 ont été observés
-sur le programme réel ; la cause du point 12 est identifiée par échantillonnage, mais
-aucun des trois n'est encore isolé en cas minimal.
+Les points 1 à 9 ont un reproducteur minimal. Les points 10 à 12 et 16 ont été
+observés sur le programme réel ; la cause du point 12 est identifiée par échantillonnage, mais
+aucun des quatre n'est encore isolé en cas minimal.
 
 ---
 
@@ -758,6 +759,63 @@ compilateur. Il est sans effet sur le son, et il est gardé tant que `main-dev`
 n'a pas intégré le correctif.
 
 ---
+
+## 16. Variable déclarée dans un domaine `ondemand` et lue hors de lui
+
+**Constat.** Le 17 octobre 2026, la borne des partiels fantômes (`bound_phantom`) a
+été portée dans `coopiano.lib`. Ses facteurs sont calculés dans un domaine
+`ondemand`, cadencé par les 30 ms qui suivent une frappe. Le domaine lit les états
+de chaque mode et le gain de lecture `rd` de sa corde. Le programme
+`dsp/coopiano_hammer.dsp` sort la force du marteau, et il ne compile plus, quel que
+soit le backend :
+
+```
+error [FRS-FIR-0001] use of undeclared variable 'fTemp19504'
+```
+
+Sous `faustprobe`, l'erreur apparaît comme une « Cranelift subset matcher drift :
+load of unknown variable ». Les programmes qui ne sortent pas la force du marteau
+compilent et calculent juste : `coopiano_note.dsp`, `coopiano_voice_out.dsp` et
+l'instrument.
+
+**Isolement, sur le programme réel.** Chaque essai change une seule chose :
+
+- sans `ondemand` (les facteurs calculés à chaque échantillon), la compilation
+  passe ;
+- cadencer le domaine par la force elle-même ou par une fenêtre après la frappe ne
+  change rien ;
+- une barrière opaque (`max(x, -1e300)`) sur les états seuls ne change rien ;
+- une barrière opaque sur `rd` seul suffit.
+
+`rd` ne dépend que de valeurs au taux de commande : les paramètres de la corde,
+sortis de domaines `on_change`, et les tirages, des curseurs. L'expression est donc
+partagée entre le domaine et le calcul de la force, hors du domaine. faust-rs la
+déclare d'un côté et la lit de l'autre.
+
+**Reproducteur.** Il n'y a pas encore de cas minimal : les essais réduits à une
+récursion, deux domaines et une sortie abandonnée compilent. Sur le dépôt, à partir
+du commit qui porte la borne, retirer la barrière reproduit l'erreur :
+
+```bash
+sed -i '' 's/si.bus(4), _opaque))/si.bus(4), _))/' ../dsp/coopiano.lib
+$FP --double -I ../dsp -n 1 --in zero --quiet ../dsp/coopiano_hammer.dsp
+```
+
+**Cause probable.** Elle n'est pas lue dans le code. C'est probablement le
+placement d'une expression de taux de commande partagée entre l'intérieur d'un
+domaine `ondemand` et l'extérieur : elle est déclarée dans le bloc du domaine, ou
+hissée avec lui, et lue hors de lui. Le vérificateur FIR l'attrape, ce qui est la
+bonne issue.
+
+**Contournement dans `coopiano.lib`.** `rd` entre dans le domaine derrière
+`_opaque`. Cela coûte 96 `max` par échantillon et ne change pas les sorties.
+
+**Correction possible.** D'abord réduire un cas minimal : une expression de
+commande lue à la fois dans un domaine `ondemand` et dans une récursion hors de
+lui, avec une sortie qui ne dépend que de la récursion. Ensuite, dans le placement
+des expressions (CSE, hoisting) au moment de la construction des blocs de
+domaines, traiter une expression utilisée des deux côtés comme appartenant à la
+portée englobante.
 
 ## Remarque : le délai par défaut du CLI
 

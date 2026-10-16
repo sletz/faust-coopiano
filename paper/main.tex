@@ -235,8 +235,8 @@ The contact, the notes (Fig.~\ref{fig:notes}) and the engine (Fig.~\ref{fig:engi
 \begin{itemize}
 \item \emph{Partials per string.} A trichord has 32 partials per string; C3 loses the C++ content above 4.5\,kHz, at most $-44$\,dB of the energy at the attack, which shows as the 9.6\,dB rms spectral difference over the bands above 4\,kHz. $N_S = 144$ gives 48 partials per string ($-67$\,dB) for 1.5 times the voice's cost.
 \item \emph{The shortest contacts.} At C8 fortissimo the contact lasts 11 samples and the audio-rate scheme loses 14\,\% of peak force and 3\,\% of impulse.
-\item \emph{Phantoms.} The per-pair amplitude bound of \code{bound\_phantom} and the $-80$\,dB pair threshold are not applied.
-\item \emph{Release tails.} After a release, once the C++ engine is more than 60\,dB below the note, the Faust output is a further 15 to 25\,dB lower: the late tail of the board fit, where its error concentrates.
+\item \emph{Phantoms.} The $-80$\,dB pair threshold is not applied. The per-pair bound of \code{bound\_phantom} is applied once per strike, from the parents' amplitudes at the end of the contact, computed in an \code{ondemand} domain clocked by the contact and held after it; without it, A0 and C1 fortissimo were 2 to 3\,dB louder at the bridge.
+\item \emph{Release tails.} After a release the C++ board rings on, mostly between 300\,Hz and 1\,kHz: its minimum-phase equalizer, designed on a 0.34\,Hz grid, lifts three quarters of the board's narrow nulls above 450\,Hz by up to 20\,dB, and these narrow peaks ring for about 2\,s until the response is cut at 1.4\,s. Its response is at $-48$, $-56$ and $-72$\,dB over 0.3--0.5, 0.5--0.75 and 1--1.4\,s, the modal fit's at $-65$, $-92$ and $-158$\,dB; the modes (T60 at most 0.45\,s) cannot carry that ring, and 64 resonators fitted to it gain 1 to 2\,dB. After a staccato the Faust output is 15 to 25\,dB lower from 0.35\,s after the release, masked by the room reverb for about a second.
 \item \emph{Noises.} Action noises are other realizations of the same filtered noise, and their level comes from the default voicing's contact solve.
 \end{itemize}
 

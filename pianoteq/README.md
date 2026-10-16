@@ -27,10 +27,11 @@ raison. Là où un jugement demanderait un vrai piano, ce document le dit.
 | Stéréo sur la musique | corrélation 0,44, −1,4 dB en mono | 0,43, −1,5 dB | identique |
 | Rendu hors ligne, cette machine | 6–8 × le temps réel | 12–36 × | Pianoteq 2–5 × plus rapide |
 
-Le portage Faust reproduit le C++ sur toutes ces mesures : écarts médians de 0,4 dB
-sur les niveaux, 0,4 % sur la brillance, 0,1 % sur l'inharmonicité et moins de 4 %
-sur les décroissances. Il s'en écarte en deux endroits : A0 et C1 fortissimo, de 2 à
-6 dB plus forts, et la fin d'un étouffement, pédale levée (§ 8).
+Le portage Faust reproduit le C++ sur toutes ces mesures : écarts médians de 0,5 dB
+sur les niveaux, 0,3 % sur la brillance, 0,1 % sur l'inharmonicité et moins de 3 %
+sur les décroissances. Un écart reste, et il a une cause connue : la fin d'un
+étouffement, pédale levée (§ 8). Celui de A0 et C1 fortissimo (jusqu'à +6 dB) venait
+d'une borne manquante des partiels fantômes ; elle est portée.
 
 ## Ce qui est comparé
 
@@ -187,30 +188,56 @@ plus grand écart, où, et médiane) :
 |---|---|---|
 | inharmonicité B | 0,10 % | −1,2 % (A6) |
 | accord (f0 ajusté) | 0,07 cent | +1,0 cent (C6) |
-| niveau, 16 touches × 6 vélocités | 0,44 dB | +5,9 dB (A0, v=127) |
-| brillance | 0,36 % | +26 % (A7, v=115 : un centroïde sous le fondamental, fait des bruits d'action) |
-| T60 du niveau, début / fin | 0,7 % / 2,5 % | +14 % / −7 % (C1) |
-| T60 des partiels 1 à 4 | 0,4 à 3,8 % | −24 % (partiel 4 de C1) |
+| niveau, 16 touches × 6 vélocités | 0,48 dB | +2,4 dB (A0, v=127 : tirages, voir plus bas) |
+| brillance | 0,33 % | +26 % (A7, v=115 : un centroïde sous le fondamental, fait des bruits d'action) |
+| T60 du niveau, début / fin | 0,6 % / 1,9 % | +4,5 % / +5,7 % (C6) |
+| T60 des partiels 1 à 4 | 0,4 à 2,7 % | −9 % (partiel 3 de C2) |
 | relâchement, −40 dB | 0,01 s | +0,6 s (A6, sans étouffoir) |
-| équilibre G − D | 0,06 dB | −0,7 dB (C8) |
-| pédale enfoncée : queue / halo | 0,03 dB / 0,31 dB | +0,2 dB / −0,6 dB |
+| équilibre G − D | 0,04 dB | −0,7 dB (C8) |
+| pédale enfoncée : queue / halo | 0,02 dB / 0,31 dB | +0,2 dB / +0,6 dB |
 | pédale levée : queue 1–4 s | 16 dB | −26 dB (C2) |
 | musique : corrélation G/D, perte en mono | | 0,438 / 0,444, −1,44 / −1,42 dB |
 
-Deux écarts dépassent ce que les validations du dépôt avaient vu (elles étaient
-faites à vélocité 0,5) :
+La première mesure avait trouvé deux écarts que les validations du dépôt ne
+voyaient pas, car elles étaient faites à vélocité 0,5.
 
-- **A0 et C1 fortissimo** : le portage est plus fort de 1,7 à 5,9 dB sur les 0,3
-  premières secondes à partir de v=90 (A0 : +1,7, +3,0, +5,9 dB à v=90, 115, 127 ;
-  C1 : +3,1, +4,9, +5,8 dB). À A1 et au-dessus, les niveaux restent à 1,7 dB près.
-  Cause non cherchée ici.
-- **La fin d'un étouffement**, pédale levée, après une note piquée (0,15 s) : les
-  deux sont encore ensemble 0,1 s après le relâchement (C4 : −29 dB de l'attaque),
-  puis, jusqu'à 1 s, le C++ garde une composante 15 à 25 dB au-dessus du portage
-  (C4 : −47,5 contre −71,5 dB à 0,5 s) ; à 2 s, les deux se rejoignent. Sur les
-  notes tenues 5 s, le temps de chute de 40 dB reste le même (0,01 s d'écart médian).
-  Le portage a pourtant le bruit d'étouffoir, le choc et le frottement du feutre
-  (`cp.noises`). Cause non cherchée non plus.
+**A0 et C1 fortissimo, corrigé.** Le portage était plus fort de 1,7 à 5,9 dB à
+partir de v=90 (A0 : +1,7, +3,0, +5,9 dB à v=90, 115, 127 ; C1 : +3,1, +4,9,
++5,8 dB). La cause : `bound_phantom` n'était pas porté. Le C++ borne chaque paire de
+partiels fantômes, une fois par frappe, à 0,65 fois la moyenne géométrique de
+l'amplitude de ses parents ; sans cette borne, un fantôme quadratique dépasse à
+fortissimo les partiels qui le produisent. Le C++ privé de sa borne reproduit l'écart
+au chevalet à 0,4 dB près (A0 : +1,7, +1,6, +1,1, +0,7 dB sur 0–50 ms, 50–300 ms,
+0,3–1 s, 1–2 s ; portage : +2,1, +1,5, +1,0, +0,7). La borne est maintenant portée
+(`_pair_bound`, `_phantom_gains`) : au chevalet, A0 et C1 à vélocité 1 sont à 0,2 dB
+du C++ (deux notes ajoutées à `make notes`), et l'instrument entier, avec les
+tirages de la graine C++, à 0,5 dB. Ce qui reste ici (au plus +2,4 dB, sans lien avec
+la vélocité, +2,0 dB à C1 v=20) vient des tirages : sur ces touches à une seule
+corde, l'écart de lecture tiré à chaque frappe (±13 %, ±1,1 dB) n'est pas moyenné,
+et les deux rendus tirent différemment.
+
+**La fin d'un étouffement, expliquée.** Pédale levée, après une note piquée
+(0,15 s), les deux sont encore ensemble 0,1 s après le relâchement (C4 : −29 dB de
+l'attaque). Ensuite, jusqu'à 1 s, le C++ garde une composante 15 à 25 dB au-dessus du
+portage (C4 : −47,5 contre −71,5 dB à 0,5 s), et les deux se rejoignent à 2 s.
+
+- **Ce n'est ni la voix ni le registre sympathique.** Au chevalet, les notes piquées
+  coïncident à 0,3 dB près. Dans le C++, couper le registre sympathique ne change
+  pas la queue (à 0,1 dB près).
+- **C'est la table d'harmonie.** La réponse C++ est à −48, −56 et −72 dB sur
+  0,3–0,5, 0,5–0,75 et 1–1,4 s (relativement à ses 50 premières ms), à 87 % entre
+  300 Hz et 1 kHz. Celle du portage est à −65, −92 et −158 dB.
+- **D'où vient cette résonance.** Elle ne vient pas des modes C++, dont le T60 vaut
+  0,06 à 0,18 s dans cette bande. Elle vient de l'égaliseur à phase minimale de
+  `flatten_ir`. Calculé sur une grille FFT de 0,34 Hz, il relève de jusqu'à 20 dB
+  les trois quarts des creux étroits de la table au-dessus de 450 Hz. Ces pics
+  étroits résonnent environ 2 s, jusqu'à la coupure de la réponse à 1,4 s.
+- **Pourquoi le portage ne la reproduit pas.** L'ajustement modal garde les modes C++
+  et ne peut pas porter cette résonance. Un essai de 16 à 64 résonateurs ajustés sur
+  ce que l'ajustement laisse n'a gagné que 1 à 2 dB.
+
+L'écart reste donc. Il est documenté dans les différences connues du README ; la
+réverbération de la salle le masque environ une seconde après le relâchement.
 
 En chemin, `tools/render.cpp` s'est révélé ignorer la vélocité : il rangeait les
 contrôles par étiquette seule, et l'étiquette « gain » de la vélocité était écrasée
@@ -237,7 +264,7 @@ comme 732 résonateurs modaux par canal.
   de raideur et d'exposant du feutre ; `[hammer] stiffness_scale` et
   `velocity_exponent` dans `default.ini`).
 - **Le portage Faust** porte ces écarts tels quels : face à Pianoteq, il se comporte
-  comme le C++, sauf l'extrême grave fortissimo et la fin d'un étouffement (§ 8).
+  comme le C++, sauf la fin d'un étouffement, pédale levée (§ 8).
 - Lequel est le plus juste ne peut se dire qu'avec des enregistrements d'un vrai
   piano ; les scripts acceptent n'importe quel rendu WAV à la place de Pianoteq.
 

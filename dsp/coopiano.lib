@@ -63,7 +63,7 @@
 //########################################################################################
 
 declare name "coopiano";
-declare version "0.2.1";
+declare version "0.2.2";
 declare author "Stéphane Letz";
 declare copyright "Faust model: GRAME, 2026; coopiano C++ model: Peter Cooper, 2026";
 declare license "MIT";
@@ -1395,15 +1395,30 @@ with {
     valid = (k + d < NS) * ok(k) * ok(j) * (_slot_s(m, k) == _slot_s(m, j)) * (f <= 4200.0) * (m < 56.0);
 };
 
+// Bound constant of the same pair (`bound_phantom`). With a parent's amplitude
+// a = readout x parent weight x state, the pair's excitation over its limit,
+// 0.65 sqrt(|a_k| |a_j|), is this constant times |readout| sqrt(|w_k| |w_j|),
+// w the two states: the bridge voicing at the sum over the parents', and the
+// parents' weights. Zero where a slot is missing (its factor is then 1).
+_pair_bound(m, k, d) = select2(valid, 0.0, _s_long * pow(0.55, d) * bridge_trans(m, fk + fj)
+    / (bridge_trans(m, fk) * bridge_trans(m, fj)) * sqrt(abs(_slot_pw(m, k) * _slot_pw(m, j))) / 0.65)
+with {
+    j = min(k + d, NS - 1);
+    fk = _slot_fn(m, k);
+    fj = _slot_fn(m, j);
+    valid = (k + d < NS) * _slot_exists(m, k) * _slot_exists(m, j);
+};
+
 // Phantom pairs and the size of the parameter bus.
 _NPAIR = NP * (DMAX + 1);
-_NPAR = _NSP * NS + _NPAIR + 2;
+_NPAR = _NSP * NS + 2 * _NPAIR + 2;
 
 // The voice's parameters in ondemand domains of eight slots, clocked by `chg`,
-// the note held at the change: the slots, the phantom coefficients, and the
-// strike point's two direct gains summed over the slots.
+// the note held at the change: the slots, the phantom coefficients, their bound
+// constants, and the strike point's two direct gains summed over the slots.
 _voice_params_on(chg, m) = par(c, NS / 8, on_change(chg, m, \(mm).(par(i, 8, _slot_params(mm, 8 * c + i))))),
     par(c, NP / 8, on_change(chg, m, \(mm).(par(i, 8, par(d, DMAX + 1, _pair_coef(mm, 8 * c + i, d)))))),
+    par(c, NP / 8, on_change(chg, m, \(mm).(par(i, 8, par(d, DMAX + 1, _pair_bound(mm, 8 * c + i, d)))))),
     (par(c, NS / 8, on_change(chg, m, \(mm).(_direct_part(mm, c)))) :> _, _);
 _direct_part(m, c) = sum(i, 8, ya(8 * c + i) * (dsp(8 * c + i, 0) + dsp(8 * c + i, 1))),
                     sum(i, 8, ya(8 * c + i) * (dvl(8 * c + i, 0) + dvl(8 * c + i, 1)))
@@ -1447,28 +1462,80 @@ with {
 
 
 // Phantom partials at the audio rate: each pair reads the states of its two
-// slots, the readout of the first and its coefficient. `_cre` is Re(a b)
+// slots, the readout of the first, its coefficient and its two bound factors
+// (vertical, horizontal; see `_phantom_gains`). `_cre` is Re(a b)
 // written without squares: `x*x` became a pow call before faust-rs 2026-10-16
 // (point 4 of the faust-rs report); the form is kept, it costs no more. Only
 // keys below G#3 have phantoms: the pairs run in an
 // ondemand domain clocked by that condition, and a stopped domain's held
 // output is masked.
-_phantom_route = route(_SLOT_OUT * NS + _NPAIR, 10 * _NPAIR, par(q, 10 * _NPAIR, (src(q) + 1, q + 1)))
+_phantom_route = route(_SLOT_OUT * NS + 3 * _NPAIR, 12 * _NPAIR, par(q, 12 * _NPAIR, (src(q) + 1, q + 1)))
 with {
-    src(q) = select2(e < 8, select2(e == 8, _SLOT_OUT * NS + pr, _SLOT_OUT * k + 7),
+    src(q) = select2(e < 8, select2(e == 8, select2(e == 9, _SLOT_OUT * NS + _NPAIR + 2 * pr + e - 10,
+                                                    _SLOT_OUT * NS + pr), _SLOT_OUT * k + 7),
                      _SLOT_OUT * select2(e < 4, j, k) + 3 + e % 4)
     with {
-        pr = int(q / 10);
-        e = q % 10;
+        pr = int(q / 12);
+        e = q % 12;
         k = int(pr / (DMAX + 1));
         j = min(k + pr % (DMAX + 1), NS - 1);
     };
 };
 _cre(ar, ai, br, bi) = (ar - ai) * (br + bi) + ai * br - ar * bi;
-_phantom_pair = \(vri, vii, hri, hii, vrj, vij, hrj, hij, rd, cv).(cv * rd * rd * (_cre(vri, vii, vrj, vij) + _cre(hri, hii, hrj, hij)));
+_phantom_pair = \(vri, vii, hri, hii, vrj, vij, hrj, hij, rd, cv, gv, gh).(
+    cv * rd * rd * (gv * _cre(vri, vii, vrj, vij) + gh * _cre(hri, hii, hrj, hij)));
 _phantom_sum = _phantom_route : par(pr, _NPAIR, _phantom_pair) : gsum(_NPAIR, 32);
-_phantoms(m) = (on, si.bus(_SLOT_OUT * NS + _NPAIR)) : ondemand(_phantom_sum) : *(on * middle_long(m))
+_phantoms(m) = (on, si.bus(_SLOT_OUT * NS + 3 * _NPAIR)) : ondemand(_phantom_sum) : *(on * middle_long(m))
 with { on = m < 56.0; };
+
+// Bound factors of the phantom pairs (`bound_phantom`): `piano.hpp` scales each
+// pair's excitation by (1 + r^8)^(-1/8), r its ratio to 0.65 sqrt(|a_k| |a_j|),
+// once per strike, from the parents' amplitudes when the contact hands over to
+// the strings. A quadratic pair then grows like its parents' geometric mean
+// instead of their product: at fortissimo in the wound bass it would otherwise
+// outgrow the partials driving it. Inputs: the slot outputs and the pairs' bound
+// constants (`_pair_bound`); outputs the vertical and the horizontal factor of
+// each pair. Only the five slot outputs it reads enter the domain, the readout
+// behind an opaque barrier: it depends on control-rate values only (the string's
+// parameters and draws), and without the barrier faust-rs declared it inside the
+// domain and used it outside whenever the hammer force is an output
+// (`dsp/coopiano_hammer.dsp`: FIR verification FRS-FIR-0001, "use of undeclared
+// variable").
+_slot_mags = \(vr, vi, hr, hi, rd).(abs(rd) * sqrt(vr * vr + vi * vi), abs(rd) * sqrt(hr * hr + hi * hi));
+_gain_route = route(2 * NS + _NPAIR, 5 * _NPAIR, par(q, 5 * _NPAIR, (src(q) + 1, q + 1)))
+with {
+    // per pair: |a_k| and |a_j| vertical, then horizontal, then the constant
+    src(q) = select2(e == 4, 2 * select2(e % 2 == 1, k, j) + int(e / 2), 2 * NS + pr)
+    with {
+        pr = int(q / 5);
+        e = q % 5;
+        k = int(pr / (DMAX + 1));
+        j = min(k + pr % (DMAX + 1), NS - 1);
+    };
+};
+_bound_factor(r) = pow(1.0 + r4 * r4, -0.125) with { r2 = r * r; r4 = r2 * r2; };
+_pair_gains = \(avk, avj, ahk, ahj, kb).(_bound_factor(kb * sqrt(avk * avj)), _bound_factor(kb * sqrt(ahk * ahj)));
+_phantom_gains = (par(k, NS, _slot_mags), si.bus(_NPAIR)) : _gain_route : par(pr, _NPAIR, _pair_gains);
+
+// The phantoms of one voice. Inputs: the slot outputs, the pair coefficients and
+// bound constants, the strike point's two direct gains and the hammer force;
+// outputs the phantoms' bridge force, then the direct gains and the force.
+// The bound factors run in an ondemand domain clocked by `win`, the first 30 ms
+// after a strike: they follow the parents through the contact (24 ms at most
+// below G#3, A0 at the lowest velocity) and hold the amplitudes the strings keep
+// after it. Before a voice's first strike they are zero, as are its phantoms.
+_phantom_block(m, win) = (si.bus(S) <: si.bus(2 * S)), si.bus(2 * _NPAIR), _, _, _
+    : route(T, T, par(i, S, (i + 1, i + 1)),
+                  par(i, _NPAIR, (2 * S + i + 1, S + i + 1)),
+                  par(i, S, (S + i + 1, S + _NPAIR + i + 1)),
+                  par(i, _NPAIR + 3, (2 * S + _NPAIR + i + 1, 2 * S + _NPAIR + i + 1)))
+    : (si.bus(S + _NPAIR), ((win * on), par(k, NS, (!, !, !, si.bus(4), _opaque)), si.bus(_NPAIR) : ondemand(_phantom_gains)), _, _, _)
+    : (_phantoms(m), _, _, _)
+with {
+    S = _SLOT_OUT * NS;
+    T = 2 * S + 2 * _NPAIR + 3;
+    on = m < 56.0;
+};
 
 
 // The hammer (`run_contact`, solved implicitly). State at n-1: position,
@@ -1734,6 +1801,8 @@ with {
     trig = gate > gate';
     // Damper position 0 (open) .. 1 (seated), moving over 40 ms; a strike lifts it.
     target = key_damper(m) * (gate == 0) * damper_contact(_pedal);
+    // The first 30 ms after a strike (the phantoms' bound follows the contact).
+    win = ((+(1) : *(1 - trig)) ~ _) < 0.030 * ma.SR;
     dmp = (\(d).(select2(trig, d + _clamp(-st, st, target - d), 0.0))) ~ _
     with { st = 1.0 / (0.040 * ma.SR); };
     // The parameters, recomputed only when the note or the voicing changes:
@@ -1742,15 +1811,15 @@ with {
     chg = (m != m') | (_voicing_hash != _voicing_hash');
     params = _voice_params_on(chg, m);
     // Slot k takes its NSP parameters and u.
-    spread = route(1 + _NPAR, (_NSP + 1) * NS + _NPAIR + 3,
+    spread = route(1 + _NPAR, (_NSP + 1) * NS + 2 * _NPAIR + 3,
         par(o, (_NSP + 1) * NS, (select2(o % (_NSP + 1) == _NSP, 1 + _NSP * int(o / (_NSP + 1)) + o % (_NSP + 1), 0) + 1, o + 1)),
-        par(i, _NPAIR + 2, (1 + _NSP * NS + i + 1, (_NSP + 1) * NS + i + 1)),
-        (1, (_NSP + 1) * NS + _NPAIR + 3));
+        par(i, 2 * _NPAIR + 2, (1 + _NSP * NS + i + 1, (_NSP + 1) * NS + i + 1)),
+        (1, (_NSP + 1) * NS + 2 * _NPAIR + 3));
     sums = route(_SLOT_OUT * NS, _NSUM * NS, par(o, _NSUM * NS, (_SLOT_OUT * (o % NS) + int(o / NS) + 1, o + 1)))
          : par(f, _NSUM, gsum(NS, 32));
-    core = spread : (par(k, NS, _slotbox(dmp, r0, r1, r2)), si.bus(_NPAIR), _, _, _)
-         : (si.bus(_SLOT_OUT * NS) <: (sums, si.bus(_SLOT_OUT * NS))), si.bus(_NPAIR), _, _, _
-         : _, _, _, (si.bus(_SLOT_OUT * NS + _NPAIR) : _phantoms(m)), _, _, _
+    core = spread : (par(k, NS, _slotbox(dmp, r0, r1, r2)), si.bus(2 * _NPAIR), _, _, _)
+         : (si.bus(_SLOT_OUT * NS) <: (sums, si.bus(_SLOT_OUT * NS))), si.bus(2 * _NPAIR), _, _, _
+         : _, _, _, _phantom_block(m, win)
          : \(ysf, ydf, br, ph, rs, rv, u).(_hammer(m, v, ysf, ydf, rs, rv, u, trig),
                                           br + ph + noises(m, v, gate, trig));
 };

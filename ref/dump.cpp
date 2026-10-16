@@ -207,7 +207,8 @@ static void dump_resonance() {
 
 static void dump_notes() {
     struct N { int midi; double vel, hold, dur; };
-    const N notes[] = {{21, 0.5, 4, 4}, {33, 0.5, 4, 4}, {45, 0.5, 4, 4}, {48, 0.8, 3, 3},
+    // A0 and C1 fortissimo: single strings whose phantom pairs reach their bound.
+    const N notes[] = {{21, 0.5, 4, 4}, {21, 1.0, 2, 2}, {24, 1.0, 2, 2}, {33, 0.5, 4, 4}, {45, 0.5, 4, 4}, {48, 0.8, 3, 3},
                        {60, 0.2, 3, 3}, {60, 0.5, 3, 3}, {60, 1.0, 3, 3}, {69, 0.5, 3, 3},
                        {69, 0.5, 0.5, 2}, {84, 0.5, 2, 2}, {96, 0.5, 2, 2}, {108, 0.5, 1, 1}};
     for (const auto& n : notes) {
