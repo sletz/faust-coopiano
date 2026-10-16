@@ -23,6 +23,7 @@ C++ lui-même.
 | `scripts/` | génération des tables (ajustement de la table d'harmonie) et comparaisons |
 | `tools/render.cpp` | rendu natif hors ligne d'une partition (`scores/demo.txt`) |
 | `web/` | la version web : page, clavier, entrée MIDI, hôte AudioWorklet du wasm de faust-rs (`make web`, `make web-serve`) |
+| `pianoteq/` | coopiano face à Pianoteq 9 sur les mêmes fichiers MIDI : rapport, mesures et figures (`make pianoteq`) |
 
 ## Utilisation
 
@@ -311,6 +312,16 @@ moins.
 | Ajustement de la table d'harmonie | -25,5 dB (réponse partagée), -22,8 à -25,7 dB (régions) ; réponse en fréquence à 0,1 dB en médiane, moins de 0,7 dB pour 90 % des fréquences |
 | Instrument complet contre `Engine`, do 4, sec et avec réverbération (`make engine`) | niveau à 0,1 dB par canal pendant la note, corrélation G/D identique (0,355 et 0,311), queue de réverbération à 0,1 dB |
 | Coût natif (clang -O3, `results/cost.txt`) | 3,1 % d'un cœur par voix qui sonne ; corps 36 % (pédale levée) à 40 % (pédale enfoncée) ; corps léger 10 % à 15 % |
+
+## Face à Pianoteq
+
+[`pianoteq/README.md`](pianoteq/README.md) mesure le coopiano C++ face à Pianoteq 9 (version
+d'essai, « NY Steinway D Classical » sans réverbération) sur les mêmes fichiers MIDI : les
+deux s'accordent sur la forme de l'inharmonicité et de l'accord étiré, les décroissances du
+médium et l'image stéréo ; l'aigu de coopiano à vélocité 20 est 25 à 38 dB plus faible (relativement au do 4 de chacun), sa brillance
+cesse de croître au-dessus de la vélocité 64 (le contact du marteau ne raccourcit plus), son
+halo sympathique pédale enfoncée est 17 à 25 dB plus faible et ses étouffoirs plus rapides.
+Pianoteq rend 2 à 5 fois plus vite.
 
 ## Différences connues
 

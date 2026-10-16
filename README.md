@@ -23,6 +23,7 @@ itself.
 | `scripts/` | table generation (soundboard fit) and the comparisons |
 | `tools/render.cpp` | native offline renderer of a score (`scores/demo.txt`) |
 | `web/` | the web version: page, keyboard, MIDI input, AudioWorklet host of the faust-rs wasm (`make web`, `make web-serve`) |
+| `pianoteq/` | coopiano against Pianoteq 9 on the same MIDI files: report (in French), measurements and figures (`make pianoteq`) |
 
 ## Use
 
@@ -293,6 +294,15 @@ much.
 | Soundboard fit | -25.5 dB (shared response), -22.8 to -25.7 dB (regions); frequency response within 0.1 dB median, under 0.7 dB for 90 % of frequencies |
 | Whole instrument vs `Engine`, C4, dry and with reverb (`make engine`) | level within 0.1 dB per channel while the note sounds, L/R correlation identical (0.355 and 0.311), reverb tail within 0.1 dB |
 | Cost, native (clang -O3, `results/cost.txt`) | 3.1 % of a core per sounding voice; body 36 % (pedal up) to 40 % (pedal down); light body 10 % to 15 % |
+
+## Against Pianoteq
+
+[`pianoteq/README.md`](pianoteq/README.md) (in French) measures the C++ coopiano against
+Pianoteq 9 (trial, "NY Steinway D Classical" without reverb) on the same MIDI files:
+the two agree on the shape of inharmonicity and stretch tuning, mid-register decays and
+the stereo image; coopiano's treble at velocity 20 is 25-38 dB quieter (relative to each one's C4), its brightness stops growing
+above velocity 64 (the hammer's contact time stops shortening), its sympathetic halo with
+the pedal is 17-25 dB weaker and its dampers are faster. Pianoteq renders 2-5 times faster.
 
 ## Known differences
 
