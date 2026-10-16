@@ -685,6 +685,24 @@ diraient où chercher :
 **Correction possible.** Le backend wasm du C++ sert de référence de parité : le
 comparer sur un DSP que les deux compilent, avant de viser Emscripten.
 
+**Mise à jour du 16 octobre, 22 h.** faust-rs `main-dev` à `51642a20` (« wasm:
+constant struct addresses go in the memarg offset (W1) ») place les adresses
+constantes de la structure dans le décalage des instructions de chargement et
+d'écriture. Reconstruit avec lui (`make web`), le wasm de coopiano donne les mêmes
+sorties (-296 dB pour la voix, -272 dB pour les corps) et coûte, sur deux passes
+alternées avec l'ancienne construction, machine chargée (charge 4 à 5) :
+
+| DSP | avant (`354e2080`) | `51642a20` | C++ de faust-rs, `em++ -O3` |
+|---|---|---|---|
+| voix (une note tenue) | 7,9 à 8,3 % | 5,9 à 6,2 % | 5,7 % |
+| corps léger, pédale levée | 40 à 41 % | 30 à 31 % | 20 % |
+| corps léger, pédale enfoncée | 91 à 92 % | 62 à 65 % | — |
+| corps imagé, pédale levée | 96 à 100 % | 50 % | 49 % |
+| corps imagé, pédale enfoncée | 152 à 156 % | 92 à 96 % | — |
+
+La voix et le corps imagé rejoignent Emscripten ; le corps léger reste 1,5 fois
+plus lent. Le point reste donc ouvert pour lui.
+
 ## 15. Une somme constante + commande + signal est groupée autrement que dans l'amont
 
 Constaté le 16 octobre au soir, en cherchant pourquoi le corps de la version web

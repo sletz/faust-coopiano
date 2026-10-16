@@ -103,17 +103,20 @@ La version publiée est à https://sletz.github.io/faust-coopiano/.
   onglets montrent alors ce qu'il a réglé, et un réglage changé ensuite le
   marque comme modifié. Les modes de la table d'harmonie restent ceux ajustés au
   grand piano C++.
-- **Coût.** Le wasm de faust-rs tourne 2,5 à 4 fois plus lentement que la version
-  native (`make web-check`, node sur un Apple M5, seconde en régime établi) :
-  | DSP | pédale levée | pédale enfoncée | natif, pédale levée |
-  |---|---|---|---|
-  | voix (une note tenue) | 7,8 % | | 3,1 % |
-  | corps léger | 41 % | 86 % | 10 % |
-  | corps imagé | 95 % | 149 % | 36 % |
-  La page démarre donc avec le corps léger et 8 voix, et affiche la charge du
-  thread audio. Le même C++ compilé en wasm par Emscripten (`em++ -O3`) a mesuré
-  5,7 %, 20 % et 49 % d'un cœur pour la voix et les deux corps : l'écart est un
-  constat sur le backend wasm de faust-rs (rapport, point 14).
+- **Coût.** Compilé par faust-rs `main-dev` à `51642a20`, le wasm tourne 1,4 à 3
+  fois plus lentement que la version native (`make web-check`, node sur un Apple
+  M5, seconde en régime établi) :
+  | DSP | pédale levée | pédale enfoncée | natif, pédale levée | Emscripten, pédale levée |
+  |---|---|---|---|---|
+  | voix (une note tenue) | 6,0 % | | 3,1 % | 5,7 % |
+  | corps léger | 30 % | 62 à 65 % | 10 % | 20 % |
+  | corps imagé | 50 % | 92 à 96 % | 36 % | 49 % |
+  Le faust-rs précédent (`354e2080`) donnait 7,8 %, 41 % et 95 % : placer les
+  adresses constantes de la structure dans le décalage memarg des chargements et
+  des écritures a mis la voix et le corps imagé au niveau du même C++ compilé par
+  Emscripten (`em++ -O3`) ; le corps léger reste 1,5 fois plus lent (rapport,
+  point 14). La page démarre avec le corps léger et 8 voix, et affiche la charge
+  du thread audio.
 
 ## Ce que le modèle calcule au fil de l'eau
 
@@ -367,8 +370,9 @@ Corrigé :
 Toujours ouvert : `-vec` sur la voix ne termine pas (planification vectorielle en
 O(L⁴) sur 31 825 boucles), et le travail au taux de bloc sort d'un domaine
 `ondemand` si son entrée n'est pas tenue au taux audio, d'où `on_change`. Trouvé
-avec la version web : le code du backend wasm est 1,3 à 1,8 fois plus lent que
-celui d'Emscripten sur le même C++ (point 14), et une somme d'une constante,
+avec la version web : le code du backend wasm était 1,3 à 1,8 fois plus lent que
+celui d'Emscripten sur le même C++, un écart que `main-dev` `51642a20` a comblé
+sauf pour le corps léger (point 14), et une somme d'une constante,
 d'une commande et d'un signal est groupée autrement qu'en C++ (point 15) : la
 partie lente n'est plus hissée et l'arrondi diffère. Ce second point gardait
 éveillées les touches étouffées de la résonance sympathique après la première

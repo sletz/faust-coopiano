@@ -15,7 +15,7 @@ import { FaustWasmDsp } from "../web/faust-wasm-dsp.js";
 const FS = 44100;
 const BLOCK = 128;
 const FAUSTPROBE = process.env.FAUSTPROBE || "../faust-rs/target/release/faustprobe";
-const WEB = "web/dsp";
+const WEB = process.env.WEB_DSP || "web/dsp";
 
 async function load(name) {
   const json = JSON.parse(fs.readFileSync(path.join(WEB, name + ".json"), "utf8"));
