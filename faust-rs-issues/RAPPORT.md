@@ -61,6 +61,8 @@ ceux de `bf65d311`.
 | 11 | non reproduit | — | la voix qui l'a provoqué n'existe plus sous cette forme ; à réessayer si une grande fonction `compute` échoue de nouveau |
 | 12 | ouvert | — | voix en `-vec -vs 32` : 31 825 boucles et 95 060 arêtes de données ; délai de 180 s dépassé, 7 Go ; la correction proposée (chaînage par ressource) reste valable |
 | 13 | corrigé | `d8543508` | MEMOIZATION §2.4c et §3.7 décrivent désormais `gApplyMemo` |
+| 14 | ouvert (constaté le 16 au soir) | — | `r15` : le wasm de faust-rs coûte 1,3 à 1,8 fois le C++ de faust-rs compilé par `em++ -O3`, sorties identiques à faustprobe |
+| 15 | ouvert (constaté le 16 au soir) | — | `r16` : `1 - c - o` est groupé `(1 - o) - c` au lieu de `(1 - c) - o` ; la partie lente n'est plus hissée et la récurrence s'arrête à 1e-17 au lieu de 0 |
 
 Les causes du point 10 n'étaient pas celle supposée seule : trois coûts « par
 groupe de récursion × graphe atteignable » se cumulaient dans
@@ -87,6 +89,8 @@ faust-rs.
 | 11 | Panic du JIT Cranelift (« branch-offset overflow? ») sur une très grande fonction | bug | à confirmer | — |
 | 12 | `-vec` sur la voix : plus de 20 minutes contre 25 à 40 s en scalaire ; planification vectorielle en O(L⁴) | performance de compilation | haute en mode vectoriel | — |
 | 13 | `porting/MEMOIZATION.md` décrit à tort les environnements C++ comme hash-consés | documentation | basse | — |
+| 14 | Code wasm 1,3 à 1,8 fois plus lent que le C++ du même programme compilé par Emscripten | performance d'exécution | moyenne (version web) | à comparer au wasm du C++ |
+| 15 | Somme constante + commande + signal groupée autrement qu'en C++ : partie lente non hissée, arrondi différent | performance d'exécution + parité numérique | moyenne | le C++ 2.90.8 groupe et hisse `1 - c` |
 
 Les points 1 à 9 ont un reproducteur minimal. Les points 10 à 12 ont été observés
 sur le programme réel ; la cause du point 12 est identifiée par échantillonnage, mais
@@ -641,6 +645,88 @@ environnements. Le code C++ dit le contraire :
 Ce n'est pas l'égalité des couches qui rend le C++ rapide, c'est `gApplyMemo`
 (point 1). Une entrée qui décrit à tort la parité C++ risque d'orienter une
 correction dans la mauvaise direction (§3.7).
+
+## 14. Le code wasm est 1,3 à 1,8 fois plus lent que le C++ compilé par Emscripten
+
+Constaté le 16 octobre au soir, en écrivant la version web (`web/`, `make web`),
+avec faust-rs `main-dev` à `354e2080`.
+
+**Constat.** `make web` compile la voix et les deux corps par
+`faust-rs -lang wasm -double`. Les sorties sont celles de faustprobe : -296 dB de la
+crête pour la voix, -270 dB pour les corps (`make web-check`). Le coût d'une seconde
+de son, en régime établi (après deux secondes, quand V8 a remplacé Liftoff par
+TurboFan), sous node 22 sur l'Apple M5, entrées des corps constantes, pédale levée :
+
+| DSP | wasm de faust-rs | C++ de faust-rs, `em++ -O3` | natif, clang -O3 |
+|---|---|---|---|
+| voix (une note tenue) | 7,4 à 7,8 % | 5,7 % | 3,1 % |
+| corps léger | 36 à 41 % | 20 % | 10 % |
+| corps imagé | 87 à 95 % | 49 % | 36 % |
+
+Le corps imagé ne tient donc pas en temps réel dans un navigateur, et la page
+démarre avec le corps léger. Les deux colonnes wasm exécutent le même programme
+dans le même moteur : l'écart ne tient qu'au code émis.
+
+**Reproducteur.** `r15_wasm_speed.sh` (`make web-check`). La colonne Emscripten
+vient d'un banc jetable : le C++ de `-lang cpp -double`, les classes appelées par
+deux fonctions exportées, `em++ -O3`, emscripten de MacPorts avec
+`EMSDK_PYTHON` sur un Python 3.13.
+
+**Cause.** Non établie ; le code wasm n'a pas été examiné. Deux mesures
+diraient où chercher :
+
+- passer `wasm-opt -O3` sur le module de faust-rs : ce qu'un optimiseur générique
+  récupère sépare le code émis (locales, chargements répétés) de ce qui demande
+  une analyse propre à Faust ;
+- compter les accès mémoire de la boucle de `compute` (`wasm-objdump -d`), contre
+  ceux du module Emscripten : LLVM garde les états de récursion dans des registres
+  le temps d'un échantillon.
+
+**Correction possible.** Le backend wasm du C++ sert de référence de parité : le
+comparer sur un DSP que les deux compilent, avant de viser Emscripten.
+
+## 15. Une somme constante + commande + signal est groupée autrement qu'en C++
+
+Constaté le 16 octobre au soir, en cherchant pourquoi le corps de la version web
+restait à son coût « pédale enfoncée » après le relâchement de la pédale.
+
+**Constat.** Sur `r16_sum_grouping.dsp`, `o + max(-st, min(st, 1 - c - o))` avec
+`c` un curseur, `o` la récursion :
+
+- le C++ 2.90.8 émet `fRec0[1] + max(-fSlow0, min(fSlow0, fSlow1 - fRec0[1]))`,
+  avec `fSlow1 = 1 - c` calculé une fois par bloc ;
+- faust-rs émet `fRec0 + fmax(fSlow2, fmin(fSlow1, (1.0 - fRec0) - fSlow0))`, et
+  dans `coopiano.lib` `1.0 - (fRec0 + fSlow4)`.
+
+Deux conséquences :
+
+- une soustraction de plus par échantillon, la partie lente n'étant plus hissée ;
+- un autre arrondi. Avec `c = 1`, la récurrence du C++ atteint 0 exactement ; celle
+  de faust-rs s'arrête à l'erreur d'arrondi de `1 - o`, 1,1e-17 en double et
+  1,1e-8 en simple (`FP --double … r16_sum_grouping.dsp`).
+
+Dans coopiano, l'ouverture des étouffoirs de la résonance sympathique (`_res_open`)
+ne revenait donc jamais à 0. Le test `o > 0` gardait éveillés les 69 domaines
+`ondemand` des touches étouffées dès la première pédale. Le corps léger restait à
+87 % d'un cœur en wasm au lieu de 40 %, et en natif la partition de démonstration
+coûtait 22 % au lieu de 15 %. Le son n'en dépendait pas, l'ouverture résiduelle
+valant 1e-17. `coopiano.lib` 0.2.1 contourne le défaut avec un seuil
+(`_RES_SEATED = 1e-9`).
+
+**Cause.** Non établie. `crates/normalize/src/aterm.rs`, `normalized_tree`
+(lignes 186 à 240), reproduit `aterm::normalizedTree` du C++ : des paquets par
+variabilité, repliés de l'ordre le plus haut au plus bas. La différence vient donc
+d'ailleurs, sans que ce soit vérifié :
+
+- de la variabilité attribuée aux termes (`sig_order`) ;
+- du repliement dans `add_terms_with_sign` ;
+- d'une étape ultérieure.
+
+Il faut comparer les signaux normalisés des deux compilateurs sur `r16`.
+
+**Correction possible.** Grouper comme le C++, ce qui rétablit le hissage et
+l'arrondi. C'est une correction de parité, qui change le code généré : elle doit
+passer par le différentiel du corpus et une entrée du registre si un écart subsiste.
 
 ---
 

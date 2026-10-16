@@ -22,6 +22,7 @@ itself.
 | `ref/dump.cpp` | includes coopiano's headers unchanged and writes the reference data |
 | `scripts/` | table generation (soundboard fit) and the comparisons |
 | `tools/render.cpp` | native offline renderer of a score (`scores/demo.txt`) |
+| `web/` | the web version: page, keyboard, MIDI input, AudioWorklet host of the faust-rs wasm (`make web`, `make web-serve`) |
 
 ## Use
 
@@ -34,6 +35,7 @@ make keyboard   # the voice against the C++ on every key A0-C8 (~5 min)
 make render     # native render of scores/demo.txt to build/demo.wav (LIGHT=1: light body)
 make results    # every comparison and the cost measure into results/*.txt (~30 min)
 make paper      # figures and the article, paper/faust-coopiano.pdf
+make web        # the web version in web/dsp; make web-serve, then http://localhost:8000/web/
 ```
 
 `COOPIANO` and `FAUST_RS` point to the two checkouts (defaults `../../coopiano`
@@ -41,6 +43,62 @@ and `../faust-rs`, release `faust-rs` and `faustprobe` built). With faust-rs
 `main-dev` of 2026-10-16, compiling the voice takes about 8 s and the body about
 5 s (25 s and 45 s the day before; see *faust-rs* below). `JOBS` (default 4) sets
 how many renders `make contact`, `notes` and `keyboard` run side by side.
+
+## Web version
+
+`web/` is the instrument in the browser: a keyboard on the page, a Web MIDI input,
+and every control with its explanation, one tab per type of control, in English
+and French.
+
+```bash
+make web        # web/dsp: the voice and both bodies compiled to wasm by faust-rs (~20 s)
+make web-serve  # serves the repository; open http://localhost:8000/web/
+make web-check  # the wasm against faustprobe, and what it costs (node)
+```
+
+- **Engine.** The voice and the two bodies are `dsp/coopiano.dsp` and
+  `dsp/coopiano_light.dsp`, compiled by `faust-rs -lang wasm -double` (the voice is
+  `process`, a body is `effect`, through `-pn effect`). They run in an AudioWorklet
+  (`web/coopiano-processor.js`) at 44.1 kHz, which the browser resamples to the
+  device. The worklet does what Faust's polyphonic architectures do:
+  - it sums the voices' five outputs into the body, computed once;
+  - it sends every control to every voice and to the body;
+  - a key struck again restrikes its own voice, on the strings still vibrating;
+  - it stops computing a released voice after half a second below 1e-6 N;
+  - with no free voice, it steals the quietest released one, with a one-block
+    fade;
+  - with no voice sounding, it stops computing the body once its output has
+    stayed below -120 dBFS for a second, so an idle page costs nothing.
+
+  `make web-check` finds the wasm output equal to faustprobe's: -296 dB of the
+  peak for the voice, -270 dB for the bodies.
+- **Playing.**
+  - Mouse or touch on the keys. The velocity comes from the click position (lower
+    on the key is louder) or from a slider.
+  - The computer keyboard, by key position whatever the layout: two rows from the
+    octave shown, ← and → to shift it, the space bar for the pedal.
+  - MIDI: all inputs or one, all channels or one. Note on and off with velocity,
+    CC64 for the pedal (half-pedalling included), CC120 and CC123 for all notes
+    off.
+
+  Another application can play it through a virtual MIDI port: the IAC Driver on
+  macOS, loopMIDI on Windows. Web MIDI needs Chrome, Edge, Firefox or Opera, and a
+  page served from localhost or HTTPS, which `make web-serve` provides.
+- **Controls.** The 32 controls of the voice and the body, in the tabs of
+  `default.ini` (hammer, strings, tone, sympathetic resonance, room, action and
+  output). Each shows its range, its default and an explanation; a double-click
+  resets one. The pedal also follows the space bar and CC64.
+- **Cost.** The faust-rs wasm runs 2.5 to 4 times slower than the native build
+  (`make web-check`, node on an Apple M5, second of steady state):
+  | DSP | pedal up | pedal down | native, pedal up |
+  |---|---|---|---|
+  | voice (one note held) | 7.8 % | | 3.1 % |
+  | light body | 41 % | 86 % | 10 % |
+  | imaged body | 95 % | 149 % | 36 % |
+  The page therefore starts with the light body and 8 voices, and shows the load
+  of the audio thread. The same C++ compiled to wasm by Emscripten (`em++ -O3`)
+  measured 5.7 %, 20 % and 49 % of a core for the voice and the two bodies: the
+  gap is a faust-rs wasm backend finding (report, point 14).
 
 ## How the model streams what the C++ prepares
 
@@ -222,7 +280,7 @@ much.
 | Sympathetic bank on the C++ force | identical to 1e-12 (-248 dB) |
 | Soundboard fit | -25.5 dB (shared response), -22.8 to -25.7 dB (regions); frequency response within 0.1 dB median, under 0.7 dB for 90 % of frequencies |
 | Whole instrument vs `Engine`, C4, dry and with reverb (`make engine`) | level within 0.1 dB per channel while the note sounds, L/R correlation identical (0.355 and 0.311), reverb tail within 0.1 dB |
-| Cost, native (clang -O3, `results/cost.txt`) | 2.9 % of a core per sounding voice; body 36 % (pedal up) to 45 % (pedal down); light body 10 % to 22 % |
+| Cost, native (clang -O3, `results/cost.txt`) | 3.1 % of a core per sounding voice; body 36 % (pedal up) to 40 % (pedal down); light body 10 % to 15 % |
 
 ## Known differences
 
@@ -275,4 +333,10 @@ the commits and the measures. Fixed:
 
 Still open: `-vec` on the voice does not finish (vector planning in O(L^4) over
 31,825 loops), and block-rate work leaves an `ondemand` domain unless its input
-is held at the audio rate, hence `on_change`.
+is held at the audio rate, hence `on_change`. Found with the web version: the
+wasm backend's code is 1.3 to 1.8 times slower than Emscripten's on the same
+C++ (point 14), and a sum of a constant, a control and a signal is grouped
+otherwise than in C++ (point 15): the slow part is no longer hoisted and the
+rounding differs. The latter kept the damped keys of the sympathetic register
+awake after the first pedal; `coopiano.lib` 0.2.1 works around it with a
+threshold.

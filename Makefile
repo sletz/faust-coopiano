@@ -18,6 +18,11 @@
 #                    LIGHT=1 uses the body without the soundboard's imaging
 #   make results     run every comparison and the cost measure, write results/*.txt (~30 min)
 #   make paper       the article, paper/faust-coopiano.pdf (pdflatex + bibtex)
+#   make web         the web version: the voice and both bodies compiled to wasm by
+#                    faust-rs into web/dsp (about 20 s)
+#   make web-check   the wasm DSPs against faustprobe, and their cost (node)
+#   make web-serve [PORT=8000]
+#                    serve the repository and open http://localhost:PORT/web/
 #   make clean       remove build/
 #   JOBS=n           renders run side by side by contact, notes and keyboard (default 4;
 #                    a faust-rs compilation of the voice peaks at about 3 GB)
@@ -40,9 +45,11 @@ RENDER_DIR = build/$(if $(LIGHT),light,full)
 VOICES ?= 16
 JOBS ?= 4
 export JOBS
+PORT ?= 8000
+WEB_DSP = web/dsp
 NATIVE ?= -O3 -ffast-math -march=native
 
-.PHONY: help ref tables check doctests contact notes keyboard engine test render results figures paper clean
+.PHONY: help ref tables check doctests contact notes keyboard engine test render results figures paper web web-check web-serve clean
 help:
 	@sed -n '1,/^$$/p' Makefile | sed 's/^# \{0,1\}//'
 
@@ -115,5 +122,29 @@ figures:
 paper: figures
 	$(MAKE) -C paper
 
+# The web version: the voice is `process` of dsp/coopiano.dsp, the bodies its
+# `effect` and the one of dsp/coopiano_light.dsp, in double precision.
+WEB_DEPS = dsp/coopiano.lib dsp/coopiano_tables.lib
+
+$(WEB_DSP)/voice.wasm: dsp/coopiano.dsp $(WEB_DEPS)
+	@mkdir -p $(WEB_DSP)
+	$(FAUSTRS) -lang wasm -double --timeout 0 -I dsp dsp/coopiano.dsp -o $@
+
+$(WEB_DSP)/body.wasm: dsp/coopiano.dsp $(WEB_DEPS)
+	@mkdir -p $(WEB_DSP)
+	$(FAUSTRS) -lang wasm -double --timeout 0 -I dsp -pn effect dsp/coopiano.dsp -o $@
+
+$(WEB_DSP)/body_light.wasm: dsp/coopiano_light.dsp $(WEB_DEPS)
+	@mkdir -p $(WEB_DSP)
+	$(FAUSTRS) -lang wasm -double --timeout 0 -I dsp -pn effect dsp/coopiano_light.dsp -o $@
+
+web: $(WEB_DSP)/voice.wasm $(WEB_DSP)/body.wasm $(WEB_DSP)/body_light.wasm
+
+web-check: web
+	node scripts/web_check.mjs
+
+web-serve: web
+	$(PYTHON) scripts/web_serve.py $(PORT)
+
 clean:
-	rm -rf build
+	rm -rf build $(WEB_DSP)

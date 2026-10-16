@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>coopiano web</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1 data-text="title">coopiano in the browser</h1>
+    <p data-text="subtitle"></p>
+  </div>
+  <div class="lang">
+    <button type="button" data-lang="en">EN</button>
+    <button type="button" data-lang="fr">FR</button>
+  </div>
+</header>
+
+<main>
+  <section class="transport">
+    <button type="button" id="start" class="primary" data-text="start">Start audio</button>
+    <span id="status" class="status"></span>
+    <button type="button" id="panic" data-text="panic" disabled>All notes off</button>
+    <div class="meters">
+      <div class="meter"><span data-text="cpu"></span><div class="bar"><div id="cpu-bar"></div></div><span id="cpu-value" class="value">–</span></div>
+      <div class="meter"><span data-text="level"></span><div class="bar"><div id="level-bar"></div></div><span id="level-value" class="value">–</span></div>
+      <div class="meter"><span data-text="voices"></span><span id="voices-value" class="value">–</span></div>
+    </div>
+    <p id="cpu-warning" class="warning" hidden data-text="cpuWarning"></p>
+  </section>
+
+  <section class="play">
+    <div class="options">
+      <label><span data-text="body"></span>
+        <select id="body">
+          <option value="light" data-text="bodyLight"></option>
+          <option value="full" data-text="bodyFull"></option>
+        </select>
+      </label>
+      <label><span data-text="polyphony"></span>
+        <select id="polyphony">
+          <option>4</option><option>6</option><option selected>8</option><option>12</option><option>16</option>
+        </select>
+      </label>
+      <label><span data-text="midi"></span>
+        <select id="midi-input"></select>
+      </label>
+      <label><span data-text="midiChannel"></span>
+        <select id="midi-channel"></select>
+      </label>
+      <span id="midi-activity" class="activity" title="MIDI"></span>
+      <span id="midi-message" class="midi-message"></span>
+    </div>
+    <div class="options">
+      <label class="wide"><span data-text="velocity"></span>
+        <input type="range" id="velocity" min="1" max="127" value="80">
+        <span id="velocity-value" class="value">80</span>
+      </label>
+      <label class="check"><input type="checkbox" id="velocity-position" checked> <span data-text="velocityByPosition"></span></label>
+      <label><span data-text="octave"></span>
+        <button type="button" id="octave-down">−</button>
+        <span id="octave-value" class="value">C4</span>
+        <button type="button" id="octave-up">+</button>
+      </label>
+      <button type="button" id="pedal" class="pedal" data-text="pedalButton">Pedal (space)</button>
+    </div>
+    <div class="keyboard-scroll"><div id="keyboard" class="keyboard"></div></div>
+    <p class="hint" id="keys-hint"></p>
+  </section>
+
+  <section class="controls">
+    <div class="controls-head">
+      <h2 data-text="controls">Controls</h2>
+      <button type="button" id="reset-all" data-text="resetAll"></button>
+    </div>
+    <div id="tabs" class="tabs" role="tablist"></div>
+    <div id="groups"></div>
+  </section>
+
+  <section class="how">
+    <h2 data-text="howTitle">How it works</h2>
+    <div id="how"></div>
+  </section>
+</main>
+
+<script type="module" src="app.js"></script>
+</body>
+</html>

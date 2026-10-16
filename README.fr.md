@@ -22,6 +22,7 @@ C++ lui-même.
 | `ref/dump.cpp` | inclut les en-têtes de coopiano sans les modifier et écrit les données de référence |
 | `scripts/` | génération des tables (ajustement de la table d'harmonie) et comparaisons |
 | `tools/render.cpp` | rendu natif hors ligne d'une partition (`scores/demo.txt`) |
+| `web/` | la version web : page, clavier, entrée MIDI, hôte AudioWorklet du wasm de faust-rs (`make web`, `make web-serve`) |
 
 ## Utilisation
 
@@ -34,6 +35,7 @@ make keyboard   # la voix contre le C++ sur chaque touche, de la 0 à do 8 (~5 m
 make render     # rendu natif de scores/demo.txt dans build/demo.wav (LIGHT=1 : corps léger)
 make results    # toutes les comparaisons et la mesure de coût dans results/*.txt (~30 min)
 make paper      # les figures et l'article, paper/faust-coopiano.pdf
+make web        # la version web dans web/dsp ; make web-serve, puis http://localhost:8000/web/
 ```
 
 `COOPIANO` et `FAUST_RS` désignent les deux dépôts (par défaut `../../coopiano`
@@ -41,6 +43,66 @@ et `../faust-rs`, avec `faust-rs` et `faustprobe` compilés en release). Avec le
 faust-rs `main-dev` du 16 octobre 2026, la voix compile en 8 s environ et le corps
 en 5 s (25 s et 45 s la veille ; voir *faust-rs*). `JOBS` (4 par défaut) fixe le
 nombre de rendus que `make contact`, `notes` et `keyboard` lancent en parallèle.
+
+## Version web
+
+`web/` est l'instrument dans le navigateur : un clavier dans la page, une entrée
+Web MIDI, et chaque réglage avec son explication, un onglet par type de réglage,
+en français et en anglais.
+
+```bash
+make web        # web/dsp : la voix et les deux corps compilés en wasm par faust-rs (~20 s)
+make web-serve  # sert le dépôt ; ouvrir http://localhost:8000/web/
+make web-check  # le wasm contre faustprobe, et ce qu'il coûte (node)
+```
+
+- **Moteur.** La voix et les deux corps sont `dsp/coopiano.dsp` et
+  `dsp/coopiano_light.dsp`, compilés par `faust-rs -lang wasm -double` (la voix est
+  `process`, un corps est `effect`, avec `-pn effect`). Ils tournent dans un
+  AudioWorklet (`web/coopiano-processor.js`) à 44,1 kHz, que le navigateur
+  rééchantillonne vers la carte son. Le worklet fait ce que font les architectures
+  polyphoniques de Faust :
+  - il additionne les cinq sorties des voix vers le corps, calculé une seule fois ;
+  - il envoie chaque réglage à toutes les voix et au corps ;
+  - une touche refrappée refrappe sa propre voix, sur les cordes qui vibrent encore ;
+  - il cesse de calculer une voix relâchée après une demi-seconde sous 1e-6 N ;
+  - sans voix libre, il prend la voix relâchée la plus faible, avec un fondu d'un
+    bloc ;
+  - sans voix qui sonne, il cesse de calculer le corps quand sa sortie est restée
+    une seconde sous -120 dBFS : une page au repos ne coûte rien.
+
+  `make web-check` trouve la sortie du wasm égale à celle de faustprobe : -296 dB
+  de la crête pour la voix, -270 dB pour les corps.
+- **Jouer.**
+  - Souris ou écran tactile sur les touches. La vélocité vient de la position du
+    clic (plus bas sur la touche, plus fort) ou d'un curseur.
+  - Le clavier d'ordinateur, par position des touches quelle que soit la
+    disposition : deux rangées à partir de l'octave affichée, ← et → pour la
+    décaler, la barre d'espace pour la pédale.
+  - Le MIDI : toutes les entrées ou une seule, tous les canaux ou un seul. Note on
+    et off avec vélocité, CC64 pour la pédale (demi-pédale comprise), CC120 et
+    CC123 pour tout arrêter.
+
+  Une autre application peut le jouer par un port MIDI virtuel : le gestionnaire
+  IAC sous macOS, loopMIDI sous Windows. Web MIDI demande Chrome, Edge, Firefox ou
+  Opera, et une page servie depuis localhost ou en HTTPS, ce que fait
+  `make web-serve`.
+- **Réglages.** Les 32 réglages de la voix et du corps, dans les onglets de
+  `default.ini` (marteau, cordes, timbre, résonance sympathique, salle, mécanique
+  et sortie). Chacun affiche sa plage, sa valeur par défaut et une explication ; un
+  double-clic le remet à sa valeur par défaut. La pédale suit aussi la barre
+  d'espace et le CC64.
+- **Coût.** Le wasm de faust-rs tourne 2,5 à 4 fois plus lentement que la version
+  native (`make web-check`, node sur un Apple M5, seconde en régime établi) :
+  | DSP | pédale levée | pédale enfoncée | natif, pédale levée |
+  |---|---|---|---|
+  | voix (une note tenue) | 7,8 % | | 3,1 % |
+  | corps léger | 41 % | 86 % | 10 % |
+  | corps imagé | 95 % | 149 % | 36 % |
+  La page démarre donc avec le corps léger et 8 voix, et affiche la charge du
+  thread audio. Le même C++ compilé en wasm par Emscripten (`em++ -O3`) a mesuré
+  5,7 %, 20 % et 49 % d'un cœur pour la voix et les deux corps : l'écart est un
+  constat sur le backend wasm de faust-rs (rapport, point 14).
 
 ## Ce que le modèle calcule au fil de l'eau
 
@@ -234,7 +296,7 @@ moins.
 | Résonance sympathique sur la force C++ | identique à 1e-12 (-248 dB) |
 | Ajustement de la table d'harmonie | -25,5 dB (réponse partagée), -22,8 à -25,7 dB (régions) ; réponse en fréquence à 0,1 dB en médiane, moins de 0,7 dB pour 90 % des fréquences |
 | Instrument complet contre `Engine`, do 4, sec et avec réverbération (`make engine`) | niveau à 0,1 dB par canal pendant la note, corrélation G/D identique (0,355 et 0,311), queue de réverbération à 0,1 dB |
-| Coût natif (clang -O3, `results/cost.txt`) | 2,9 % d'un cœur par voix qui sonne ; corps 36 % (pédale levée) à 45 % (pédale enfoncée) ; corps léger 10 % à 22 % |
+| Coût natif (clang -O3, `results/cost.txt`) | 3,1 % d'un cœur par voix qui sonne ; corps 36 % (pédale levée) à 40 % (pédale enfoncée) ; corps léger 10 % à 15 % |
 
 ## Différences connues
 
@@ -293,4 +355,10 @@ Corrigé :
 
 Toujours ouvert : `-vec` sur la voix ne termine pas (planification vectorielle en
 O(L⁴) sur 31 825 boucles), et le travail au taux de bloc sort d'un domaine
-`ondemand` si son entrée n'est pas tenue au taux audio, d'où `on_change`.
+`ondemand` si son entrée n'est pas tenue au taux audio, d'où `on_change`. Trouvé
+avec la version web : le code du backend wasm est 1,3 à 1,8 fois plus lent que
+celui d'Emscripten sur le même C++ (point 14), et une somme d'une constante,
+d'une commande et d'un signal est groupée autrement qu'en C++ (point 15) : la
+partie lente n'est plus hissée et l'arrondi diffère. Ce second point gardait
+éveillées les touches étouffées de la résonance sympathique après la première
+pédale ; `coopiano.lib` 0.2.1 le contourne par un seuil.
