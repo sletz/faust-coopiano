@@ -4,6 +4,13 @@
 // (controlKey in faust-wasm-dsp.js); ranges and defaults come from the JSON
 // of the compiled DSPs, not from here.
 
+/**
+ * The control groups, in the order of the page's tabs. Each group:
+ *   id                 the tab's identifier (the first component of the keys)
+ *   title, intro       { en, fr } texts: the tab's name and its explanation
+ *   controls           control key -> { name: { en, fr }, unit?, help: { en, fr } }
+ * A control key missing from the compiled DSPs is not shown.
+ */
 export const GROUPS = [
   {
     id: "hammer",
@@ -306,10 +313,16 @@ export const GROUPS = [
   },
 ];
 
-// Presets: kinds of piano, each a set of overrides of the defaults (every
-// control not listed returns to its default; the pedal is left alone). They
-// change the hammers, the strings, the voicing, the sympathetic register and
-// the room: the soundboard's modes are fitted to the C++ grand and stay its own.
+/**
+ * Presets: kinds of piano, each a set of overrides of the defaults (every
+ * control not listed returns to its default; the pedal is left alone). They
+ * change the hammers, the strings, the voicing, the sympathetic register and
+ * the room: the soundboard's modes are fitted to the C++ grand and stay its own.
+ * Each preset:
+ *   id                 identifier (data-preset of its card)
+ *   name, help         { en, fr } texts
+ *   values             control key -> value; empty for the defaults themselves
+ */
 export const PRESETS = [
   {
     id: "concert",
@@ -486,9 +499,14 @@ export const PRESETS = [
   },
 ];
 
-// Controls the page drives itself: the keyboard sets them per voice.
+// Not read by the page today: the processor sets these three itself (start()).
 export const VOICE_CONTROLS = ["freq", "gain", "gate"];
 
+/**
+ * The strings of the page, { en, fr } by key: elements with a `data-text`
+ * attribute in index.html take the entry of that name (applyLanguage in app.js),
+ * and app.js uses the others directly.
+ */
 export const TEXT = {
   title: { en: "coopiano in the browser", fr: "coopiano dans le navigateur" },
   subtitle: {

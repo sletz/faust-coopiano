@@ -5,16 +5,20 @@
 import { GROUPS, PRESETS, TEXT } from "./controls.js";
 import { uiItems, controlKey } from "./faust-wasm-dsp.js";
 
+// Where `make web` puts the wasm modules and their JSON, relative to the page.
 const DSP_DIR = "dsp/";
 const FIRST_KEY = 21; // A0
 const LAST_KEY = 108; // C8
 const NOTE_NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+// Scientific pitch name of a MIDI key (60 is C4).
 const noteName = (key) => NOTE_NAMES[key % 12] + (Math.floor(key / 12) - 1);
+// True for the keys of C#, D#, F#, G# and A#.
 const isBlack = (key) => [1, 3, 6, 8, 10].includes(key % 12);
 const $ = (id) => document.getElementById(id);
 
 // ---------------------------------------------------------------- language
 
+// The page's language, "en" or "fr": the stored choice, else the browser's.
 let lang = "en";
 try {
   lang = localStorage.getItem("coopiano-lang") || (navigator.language || "en").slice(0, 2);
@@ -22,8 +26,10 @@ try {
   lang = (navigator.language || "en").slice(0, 2);
 }
 if (lang !== "fr") lang = "en";
+// The text of an { en, fr } entry in the page's language (English as fallback).
 const t = (entry) => (entry ? entry[lang] || entry.en : "");
 
+// The "How it works" section, as HTML.
 const HOW = {
   en: `
 <p>Each key played takes one of the voices. Its felt hammer is solved against its strings at every sample, and the voice hands the body five signals: its bridge force split over four bridge regions (a crossfade between the two regions around the key's place on the bridge), and a correction that withholds the key's own share from the sympathetic strings.</p>
@@ -45,6 +51,7 @@ const HOW = {
 <p>Tout est écrit en Faust (<code>dsp/coopiano.lib</code>), compilé en WebAssembly par faust-rs et exécuté dans un AudioWorklet. Le modèle est vérifié contre le modèle C++ qu'il porte : voir le <a href="https://github.com/sletz/faust-coopiano/blob/main/README.fr.md">README</a> et l'<a href="https://github.com/sletz/faust-coopiano/blob/main/paper/faust-coopiano.pdf">article</a>. Le corps imagé coûte environ deux fois le corps léger, et pédale enfoncée les cordes sympathiques des touches étouffées se réveillent et coûtent davantage : l'indicateur de charge ci-dessus dit quelle part du thread audio est utilisée.</p>`,
 };
 
+// The help line under the keyboard.
 const KEYS_HINT = {
   en: "Mouse or touch: play the keys (with “from the click position”, lower on the key is louder). Computer keyboard: two rows, Z S X D C… and Q 2 W 3 E… (by key position, whatever the layout), from the octave shown; ← and → shift it; the space bar holds the pedal. MIDI: choose an input above. To play from another application on macOS, enable the IAC Driver in Audio MIDI Setup and send to it.",
   fr: "Souris ou écran tactile : jouer sur les touches (avec « selon la position du clic », plus bas sur la touche, plus fort). Clavier d'ordinateur : deux rangées, W S X D C… et A 2 Z 3 E… sur un AZERTY (par position des touches, quelle que soit la disposition), à partir de l'octave affichée ; ← et → la décalent ; la barre d'espace tient la pédale. MIDI : choisir une entrée ci-dessus. Pour jouer depuis une autre application sous macOS, activer le gestionnaire IAC dans Configuration audio et MIDI et lui envoyer les notes.",
@@ -56,16 +63,32 @@ const controlDefs = new Map(); // key -> { min, max, step, init }
 const values = new Map(); // key -> current value
 const controlViews = new Map(); // key -> { input, value }
 
+/**
+ * @param {number} step - a control's step
+ * @returns {number} the number of decimals of `step`
+ */
 function decimals(step) {
   const s = String(step);
   return s.includes(".") ? s.split(".")[1].length : 0;
 }
 
+/**
+ * @param {string} key - a control key
+ * @param {number} value
+ * @returns {string} `value` with the decimals of the control's step (at most 4)
+ */
 function formatValue(key, value) {
   const def = controlDefs.get(key);
   return Number(value).toFixed(def ? Math.min(4, decimals(def.step)) : 2);
 }
 
+/**
+ * Sets a control: its value, its slider and label (marked when it differs from
+ * the default), the processor (unless `send` is false), and the presets' state.
+ * @param {string} key - a control key
+ * @param {number} value
+ * @param {{send?: boolean}} [options] - send: false only updates the page
+ */
 function setControl(key, value, { send = true } = {}) {
   values.set(key, value);
   const view = controlViews.get(key);
@@ -80,10 +103,15 @@ function setControl(key, value, { send = true } = {}) {
 
 // ---------------------------------------------------------------- presets
 
+// The last preset applied: its card is highlighted.
 let lastPreset = "concert";
 
-// What a preset sets: its overrides, the defaults for every other control
-// shown on the page, the pedal left alone.
+/**
+ * What a preset sets: its overrides, the defaults for every other control
+ * shown on the page, the pedal left alone.
+ * @param {Object} preset - an entry of PRESETS
+ * @returns {Map<string, number>} control key -> value
+ */
 function presetTargets(preset) {
   const targets = new Map();
   for (const [key, def] of controlDefs) {
@@ -93,6 +121,10 @@ function presetTargets(preset) {
   return targets;
 }
 
+/**
+ * @param {Object} preset - an entry of PRESETS
+ * @returns {boolean} true while every control is at the value the preset sets
+ */
 function presetMatches(preset) {
   for (const [key, value] of presetTargets(preset)) {
     if (Math.abs(values.get(key) - value) > 1e-9) return false;
@@ -100,12 +132,20 @@ function presetMatches(preset) {
   return true;
 }
 
+/**
+ * Applies a preset: its values, and the defaults for the controls it does not list.
+ * @param {Object} preset - an entry of PRESETS
+ */
 function applyPreset(preset) {
   lastPreset = preset.id;
   for (const [key, value] of presetTargets(preset)) setControl(key, value);
   updatePresetState();
 }
 
+/**
+ * Highlights the last preset applied, with a "modified" badge once a control
+ * no longer has the value it set.
+ */
 function updatePresetState() {
   for (const card of document.querySelectorAll(".preset[data-preset]")) {
     const preset = PRESETS.find((p) => p.id === card.dataset.preset);
@@ -115,11 +155,20 @@ function updatePresetState() {
   }
 }
 
+/**
+ * @param {string} key - a control key
+ * @returns {string} its name in the page's language, the key itself if unknown
+ */
 function controlName(key) {
   for (const group of GROUPS) if (group.controls[key]) return t(group.controls[key].name);
   return key;
 }
 
+/**
+ * Fills the Presets tab: one card per preset, with its explanation, the controls
+ * it sets and an Apply button.
+ * @param {HTMLElement} box - the tab's panel
+ */
 function buildPresetsPanel(box) {
   const intro = document.createElement("p");
   intro.className = "group-intro";
@@ -159,15 +208,22 @@ function buildPresetsPanel(box) {
   box.append(intro, grid);
 }
 
+// The open tab, remembered across visits when storage is available.
 let activeGroup = "presets";
 try {
   activeGroup = localStorage.getItem("coopiano-tab") || activeGroup;
 } catch {
   // the tab is only remembered when storage is available
 }
+// The tabs: the presets, then one per control group.
 const TABS = [{ id: "presets", title: TEXT.presets }, ...GROUPS];
 if (!TABS.some((g) => g.id === activeGroup)) activeGroup = TABS[0].id;
 
+/**
+ * Opens a tab (ARIA tabs: selected state, roving tabindex, panels shown or hidden).
+ * @param {string} id - the tab's group id
+ * @param {boolean} [focus] - also move the keyboard focus to the tab
+ */
 function selectGroup(id, focus = false) {
   activeGroup = id;
   try {
@@ -184,7 +240,10 @@ function selectGroup(id, focus = false) {
   for (const panel of document.querySelectorAll("#groups [role=tabpanel]")) panel.hidden = panel.dataset.group !== id;
 }
 
-// One tab per type of control (the groups of default.ini).
+/**
+ * Builds the tabs and their panels: the presets, then one tab per type of
+ * control (the groups of default.ini).
+ */
 function buildControls() {
   const tabs = $("tabs");
   const root = $("groups");
@@ -199,6 +258,7 @@ function buildControls() {
     tab.setAttribute("aria-controls", "panel-" + group.id);
     tab.textContent = t(group.title);
     tab.addEventListener("click", () => selectGroup(group.id));
+    // Left and right arrows move between the tabs, cyclically.
     tab.addEventListener("keydown", (e) => {
       if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
       e.preventDefault();
@@ -235,6 +295,8 @@ function buildControls() {
     const grid = document.createElement("div");
     grid.className = "group-controls";
     box.append(head, grid);
+    // One row per control the compiled DSPs have: name and Faust name, value,
+    // slider (double-click: default), explanation, default and range.
     for (const [key, info] of Object.entries(group.controls)) {
       const def = controlDefs.get(key);
       if (!def) continue;
@@ -283,8 +345,14 @@ function buildControls() {
 
 // ---------------------------------------------------------------- audio
 
+// The audio context, the processor's node, and a flag while they are created.
 const audio = { ctx: null, node: null, compiled: null, starting: false };
 
+/**
+ * Fetches and compiles one DSP of DSP_DIR.
+ * @param {string} name - "voice", "body" or "body_light"
+ * @returns {Promise<{json: Object, module: WebAssembly.Module}>}
+ */
 async function compileDsp(name) {
   const [json, module] = await Promise.all([
     fetch(DSP_DIR + name + ".json").then((r) => {
@@ -299,10 +367,20 @@ async function compileDsp(name) {
   return { json, module };
 }
 
+/**
+ * @param {Object|null} entry - a TEXT entry for the status line
+ * @param {string} [extra] - text appended to it
+ */
 function setStatus(entry, extra = "") {
   $("status").textContent = (entry ? t(entry) : "") + extra;
 }
 
+/**
+ * The Start/Stop button. The first call creates the audio context at 44.1 kHz,
+ * loads the processor, compiles the three DSPs and starts the voices with the
+ * current controls; the later calls suspend or resume the context (suspending
+ * first releases every note).
+ */
 async function startAudio() {
   if (audio.ctx) {
     if (audio.ctx.state === "running") {
@@ -325,6 +403,8 @@ async function startAudio() {
     const ctx = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
     await ctx.audioWorklet.addModule("coopiano-processor.js");
     const [voice, light, full] = await Promise.all(["voice", "body_light", "body"].map(compileDsp));
+    // The compiled modules are structured-cloned into the audio thread, which
+    // instantiates them (coopiano-processor.js).
     const node = new AudioWorkletNode(ctx, "coopiano", {
       numberOfInputs: 0,
       numberOfOutputs: 1,
@@ -359,6 +439,11 @@ async function startAudio() {
   }
 }
 
+/**
+ * Shows the processor's statistics: load of the audio thread (warning above 95 %),
+ * output peak in dBFS over a 60 dB scale, sounding voices and the body's sleep.
+ * @param {Object} m - a message of the processor
+ */
 function onStats(m) {
   if (m.type !== "stats") return;
   const load = Math.round(100 * m.load);
@@ -374,15 +459,27 @@ function onStats(m) {
   $("voices-value").textContent = `${m.active} / ${$("polyphony").value}` + (m.bodyAsleep ? ` · ${t(TEXT.bodyIdle)}` : "");
 }
 
+/**
+ * Posts a message to the processor, once it exists.
+ * @param {Object} message - see the protocol in coopiano-processor.js
+ */
 function send(message) {
   if (audio.node) audio.node.port.postMessage(message);
 }
 
 // ---------------------------------------------------------------- notes
 
+// A key sounds while one source at least holds it: a mouse pointer, a computer
+// key and a MIDI input can hold the same key; the note is released with the last.
 const sources = new Map(); // key -> set of sources holding it (pointer ids, "kbd", "midi")
 const keyElements = new Map();
 
+/**
+ * A key pressed by a source (the first note starts the audio).
+ * @param {number} key - MIDI key; keys outside A0..C8 are ignored
+ * @param {number} velocity - in [0, 1]
+ * @param {string} source - who holds it: "p<pointer id>", "kbd", "midi", "console"
+ */
 function noteOn(key, velocity, source) {
   if (key < FIRST_KEY || key > LAST_KEY) return;
   if (!audio.ctx && !audio.starting) startAudio();
@@ -393,6 +490,11 @@ function noteOn(key, velocity, source) {
   send({ type: "noteOn", key, velocity });
 }
 
+/**
+ * A key released by a source; the note ends when no source holds it any more.
+ * @param {number} key - MIDI key
+ * @param {string} source - as given to noteOn
+ */
 function noteOff(key, source) {
   const held = sources.get(key);
   if (!held || !held.delete(source)) return;
@@ -402,6 +504,9 @@ function noteOff(key, source) {
   }
 }
 
+/**
+ * Releases every held key, whatever holds it.
+ */
 function allNotesOff() {
   for (const [key, held] of sources) {
     if (held.size > 0) send({ type: "noteOff", key });
@@ -410,6 +515,10 @@ function allNotesOff() {
   }
 }
 
+/**
+ * The sustain pedal: the control and the pedal button's state.
+ * @param {number} value - 0 up .. 1 down
+ */
 function setPedal(value) {
   setControl("action/pedal", value);
   $("pedal").classList.toggle("down", value >= 0.5);
@@ -417,9 +526,14 @@ function setPedal(value) {
 
 // ---------------------------------------------------------------- keyboard
 
+// Widths of the white and black keys, in pixels.
 const WHITE = 24;
 const BLACK = 15;
 
+/**
+ * Draws the 88 keys, A0 to C8, absolutely positioned (black keys straddle two
+ * white ones), with the C keys and A0 labelled.
+ */
 function buildKeyboard() {
   const kb = $("keyboard");
   kb.textContent = "";
@@ -454,6 +568,13 @@ function buildKeyboard() {
   });
 }
 
+/**
+ * Velocity of a click: the velocity slider, or, with "from the click position",
+ * from the height of the click on the key: MIDI 16 at the top to 127 at the bottom.
+ * @param {PointerEvent} event
+ * @param {HTMLElement} el - the key
+ * @returns {number} velocity in [0, 1]
+ */
 function velocityFor(event, el) {
   if (!$("velocity-position").checked) return Number($("velocity").value) / 127;
   const rect = el.getBoundingClientRect();
@@ -461,11 +582,20 @@ function velocityFor(event, el) {
   return Math.max(1, Math.round(16 + 111 * y)) / 127;
 }
 
+/**
+ * @param {number} x - client coordinates
+ * @param {number} y
+ * @returns {{el: HTMLElement, key: number}|null} the key under the point
+ */
 function keyAt(x, y) {
   const el = document.elementFromPoint(x, y)?.closest(".key");
   return el ? { el, key: Number(el.dataset.key) } : null;
 }
 
+/**
+ * Mouse and touch: one note per pointer, captured by the keyboard, sliding from
+ * key to key (glissando) while the pointer moves.
+ */
 function initPointer() {
   const kb = $("keyboard");
   const pointers = new Map(); // pointer id -> key
@@ -496,15 +626,24 @@ function initPointer() {
 }
 
 // Physical key positions (KeyboardEvent.code), so the rows work on any layout.
+// Two rows of a piano keyboard on the computer keyboard, as on trackers: the
+// lower row from C of `baseOctave`, the upper one an octave higher.
 const LOWER_ROW = ["KeyZ", "KeyS", "KeyX", "KeyD", "KeyC", "KeyV", "KeyG", "KeyB", "KeyH", "KeyN", "KeyJ", "KeyM",
   "Comma", "KeyL", "Period", "Semicolon", "Slash"];
 const UPPER_ROW = ["KeyQ", "Digit2", "KeyW", "Digit3", "KeyE", "KeyR", "Digit5", "KeyT", "Digit6", "KeyY", "Digit7", "KeyU",
   "KeyI", "Digit9", "KeyO", "Digit0", "KeyP"];
+// Labels of the punctuation codes when the layout is unknown.
 const QWERTY = { Comma: ",", Period: ".", Semicolon: ";", Slash: "/" };
 let baseOctave = 3; // the lower row starts at C3
+// The keyboard layout (navigator.keyboard), for the labels; null if unavailable.
 let layoutMap = null;
 const computerKeys = new Map(); // code -> key while held
 
+/**
+ * @param {string} code - a KeyboardEvent.code
+ * @returns {number|null} its offset in semitones from C of `baseOctave`, null if
+ *   the code plays no note
+ */
 function codeOffset(code) {
   let i = LOWER_ROW.indexOf(code);
   if (i >= 0) return i;
@@ -512,6 +651,10 @@ function codeOffset(code) {
   return i >= 0 ? 12 + i : null;
 }
 
+/**
+ * @param {string} code - a KeyboardEvent.code
+ * @returns {string} the character it types on this layout (or QWERTY's)
+ */
 function codeLabel(code) {
   const c = layoutMap?.get(code);
   if (c) return c.toUpperCase();
@@ -519,6 +662,9 @@ function codeLabel(code) {
   return code.replace(/^Key|^Digit/, "");
 }
 
+/**
+ * Writes on the keys the computer keys that play them, and the octave shown.
+ */
 function labelComputerKeys() {
   for (const el of document.querySelectorAll(".label.computer")) el.remove();
   const base = 12 * (baseOctave + 1);
@@ -540,11 +686,20 @@ function labelComputerKeys() {
   $("octave-value").textContent = "C" + baseOctave;
 }
 
+/**
+ * Shifts the computer keyboard by octaves, keeping its lower row from C0 to C6.
+ * @param {number} delta - -1 or 1
+ */
 function shiftOctave(delta) {
   baseOctave = Math.min(6, Math.max(0, baseOctave + delta));
   labelComputerKeys();
 }
 
+/**
+ * The computer keyboard: the two rows play, the space bar holds the pedal, the
+ * left and right arrows shift the octave. Keys typed into a form field, or with a
+ * modifier, are left alone; leaving the window releases the held keys.
+ */
 function initComputerKeyboard() {
   navigator.keyboard?.getLayoutMap?.().then((map) => {
     layoutMap = map;
@@ -591,12 +746,20 @@ function initComputerKeyboard() {
 
 // ---------------------------------------------------------------- MIDI
 
+// Web MIDI: the access object, the chosen input ("all" or an id), the channel
+// (0 for omni) and the timer of the activity light.
 const midi = { access: null, input: "all", channel: 0, activityTimer: 0 };
 
+/**
+ * @returns {Array<MIDIInput>} the MIDI inputs, none before access is granted
+ */
 function midiInputs() {
   return midi.access ? [...midi.access.inputs.values()] : [];
 }
 
+/**
+ * Fills the MIDI input menu, or says why there is no input.
+ */
 function fillMidiSelect() {
   const select = $("midi-input");
   select.textContent = "";
@@ -621,6 +784,9 @@ function fillMidiSelect() {
   midi.input = select.value;
 }
 
+/**
+ * Fills the MIDI channel menu: omni, then 1 to 16.
+ */
 function fillChannelSelect() {
   const select = $("midi-channel");
   const current = midi.channel;
@@ -630,12 +796,19 @@ function fillChannelSelect() {
   select.value = String(current);
 }
 
+/**
+ * Listens to the chosen input (or to all of them).
+ */
 function bindMidiInputs() {
   for (const input of midiInputs()) {
     input.onmidimessage = midi.input === "all" || midi.input === input.id ? onMidiMessage : null;
   }
 }
 
+/**
+ * Asks for MIDI access once (when the audio starts), and follows inputs
+ * connected or disconnected later.
+ */
 async function initMidi() {
   if (!navigator.requestMIDIAccess || midi.access) return;
   try {
@@ -653,6 +826,12 @@ async function initMidi() {
   bindMidiInputs();
 }
 
+/**
+ * A MIDI message: note on and off, sustain pedal (CC64, continuous), all notes
+ * off (CC120, CC123), on the chosen channel; the activity light and the last
+ * message are shown.
+ * @param {{data: Uint8Array}} event
+ */
 function onMidiMessage(event) {
   const [status, a = 0, b = 0] = event.data;
   const kind = status & 0xf0;
@@ -683,6 +862,9 @@ function onMidiMessage(event) {
 
 // ---------------------------------------------------------------- page
 
+/**
+ * Sets the page's texts in its language and rebuilds the translated parts.
+ */
 function applyLanguage() {
   document.documentElement.lang = lang;
   for (const el of document.querySelectorAll("[data-text]")) {
@@ -698,6 +880,10 @@ function applyLanguage() {
   fillChannelSelect();
 }
 
+/**
+ * Loads the controls' ranges and defaults from the JSON of the DSPs, builds the
+ * keyboard and the controls, and wires the page's buttons and menus.
+ */
 async function main() {
   // Ranges and defaults: the JSON of the voice and of the light body (the
   // full body has the same controls).
@@ -761,7 +947,8 @@ async function main() {
 
 // A handle for scripting the page from the browser console, e.g.
 // coopiano.noteOn(60, 0.7); coopiano.noteOff(60); coopiano.set("reverb/mix", 0);
-// coopiano.midi([0x90, 60, 100]) feeds a MIDI message as if from an input.
+// coopiano.midi([0x90, 60, 100]) feeds a MIDI message as if from an input;
+// coopiano.controls() lists the control keys and coopiano.get(key) reads one.
 window.coopiano = {
   noteOn: (key, velocity = 0.6) => noteOn(key, velocity, "console"),
   noteOff: (key) => noteOff(key, "console"),
