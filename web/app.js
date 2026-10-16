@@ -33,7 +33,7 @@ const HOW = {
 <li>the <b>soundboard</b>: 732 modes. The imaged body fits each mode per bridge region and per channel (1464 resonators); the light one gives each mode a single resonator for both channels, about a third of the cost, without the regions' stereo image;</li>
 <li>a 20 Hz DC filter, the <b>room</b>, the output gain and a soft limiter.</li>
 </ul>
-<p>Everything is written in Faust (<code>dsp/coopiano.lib</code>), compiled to WebAssembly by faust-rs and run in an AudioWorklet. The model is checked against the C++ model it ports: see the <a href="../README.md">README</a> and the <a href="../paper/faust-coopiano.pdf">paper</a>. The imaged body costs about twice the light one, and with the pedal down the sympathetic strings of the damped keys wake up and cost more: the load meter above tells how much of the audio thread is used.</p>`,
+<p>Everything is written in Faust (<code>dsp/coopiano.lib</code>), compiled to WebAssembly by faust-rs and run in an AudioWorklet. The model is checked against the C++ model it ports: see the <a href="https://github.com/sletz/faust-coopiano#readme">README</a> and the <a href="https://github.com/sletz/faust-coopiano/blob/main/paper/faust-coopiano.pdf">paper</a>. The imaged body costs about twice the light one, and with the pedal down the sympathetic strings of the damped keys wake up and cost more: the load meter above tells how much of the audio thread is used.</p>`,
   fr: `
 <p>Chaque touche jouée prend une des voix. Son marteau de feutre est résolu contre ses cordes à chaque échantillon, et la voix transmet au corps cinq signaux : sa force au chevalet répartie sur quatre régions du chevalet (un fondu entre les deux régions qui entourent la place de la touche), et une correction qui retire la part de la touche de ses propres cordes sympathiques.</p>
 <p>Le corps tourne une seule fois sur la somme des voix :</p>
@@ -42,7 +42,7 @@ const HOW = {
 <li>la <b>table d'harmonie</b> : 732 modes. Le corps imagé ajuste chaque mode par région du chevalet et par canal (1464 résonateurs) ; le corps léger donne à chaque mode un seul résonateur pour les deux canaux, environ trois fois moins cher, sans l'image stéréo des régions ;</li>
 <li>un filtre continu à 20 Hz, la <b>salle</b>, le gain de sortie et un limiteur doux.</li>
 </ul>
-<p>Tout est écrit en Faust (<code>dsp/coopiano.lib</code>), compilé en WebAssembly par faust-rs et exécuté dans un AudioWorklet. Le modèle est vérifié contre le modèle C++ qu'il porte : voir le <a href="../README.fr.md">README</a> et l'<a href="../paper/faust-coopiano.pdf">article</a>. Le corps imagé coûte environ deux fois le corps léger, et pédale enfoncée les cordes sympathiques des touches étouffées se réveillent et coûtent davantage : l'indicateur de charge ci-dessus dit quelle part du thread audio est utilisée.</p>`,
+<p>Tout est écrit en Faust (<code>dsp/coopiano.lib</code>), compilé en WebAssembly par faust-rs et exécuté dans un AudioWorklet. Le modèle est vérifié contre le modèle C++ qu'il porte : voir le <a href="https://github.com/sletz/faust-coopiano/blob/main/README.fr.md">README</a> et l'<a href="https://github.com/sletz/faust-coopiano/blob/main/paper/faust-coopiano.pdf">article</a>. Le corps imagé coûte environ deux fois le corps léger, et pédale enfoncée les cordes sympathiques des touches étouffées se réveillent et coûtent davantage : l'indicateur de charge ci-dessus dit quelle part du thread audio est utilisée.</p>`,
 };
 
 const KEYS_HINT = {

@@ -1,6 +1,6 @@
 # faust-coopiano
 
-[English version](README.md)
+[English version](README.md) · **Le jouer dans le navigateur : https://sletz.github.io/faust-coopiano/**
 
 Un modèle Faust de [coopiano](../../coopiano), le piano à modélisation physique
 de `piano.hpp` / `instrument.hpp` (C++17, MIT) : marteau, cordes à l'unisson à
@@ -54,7 +54,10 @@ en français et en anglais.
 make web        # web/dsp : la voix et les deux corps compilés en wasm par faust-rs (~20 s)
 make web-serve  # sert le dépôt ; ouvrir http://localhost:8000/web/
 make web-check  # le wasm contre faustprobe, et ce qu'il coûte (node)
+make web-pages  # publie web/ et web/dsp sur la branche gh-pages (GitHub Pages)
 ```
+
+La version publiée est à https://sletz.github.io/faust-coopiano/.
 
 - **Moteur.** La voix et les deux corps sont `dsp/coopiano.dsp` et
   `dsp/coopiano_light.dsp`, compilés par `faust-rs -lang wasm -double` (la voix est

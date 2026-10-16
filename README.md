@@ -1,6 +1,6 @@
 # faust-coopiano
 
-[Version française](README.fr.md)
+[Version française](README.fr.md) · **Play it in the browser: https://sletz.github.io/faust-coopiano/**
 
 A Faust model of [coopiano](../../coopiano), the physically modelled piano of
 `piano.hpp` / `instrument.hpp` (C++17, MIT): hammer, unison strings with two
@@ -54,7 +54,10 @@ and French.
 make web        # web/dsp: the voice and both bodies compiled to wasm by faust-rs (~20 s)
 make web-serve  # serves the repository; open http://localhost:8000/web/
 make web-check  # the wasm against faustprobe, and what it costs (node)
+make web-pages  # publish web/ and web/dsp on the gh-pages branch (GitHub Pages)
 ```
+
+The published version is at https://sletz.github.io/faust-coopiano/.
 
 - **Engine.** The voice and the two bodies are `dsp/coopiano.dsp` and
   `dsp/coopiano_light.dsp`, compiled by `faust-rs -lang wasm -double` (the voice is

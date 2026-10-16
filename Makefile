@@ -23,6 +23,8 @@
 #   make web-check   the wasm DSPs against faustprobe, and their cost (node)
 #   make web-serve [PORT=8000]
 #                    serve the repository and open http://localhost:PORT/web/
+#   make web-pages   publish the web version on the gh-pages branch of origin
+#                    (GitHub Pages: https://sletz.github.io/faust-coopiano/)
 #   make clean       remove build/
 #   JOBS=n           renders run side by side by contact, notes and keyboard (default 4;
 #                    a faust-rs compilation of the voice peaks at about 3 GB)
@@ -49,7 +51,7 @@ PORT ?= 8000
 WEB_DSP = web/dsp
 NATIVE ?= -O3 -ffast-math -march=native
 
-.PHONY: help ref tables check doctests contact notes keyboard engine test render results figures paper web web-check web-serve clean
+.PHONY: help ref tables check doctests contact notes keyboard engine test render results figures paper web web-check web-serve web-pages clean
 help:
 	@sed -n '1,/^$$/p' Makefile | sed 's/^# \{0,1\}//'
 
@@ -145,6 +147,9 @@ web-check: web
 
 web-serve: web
 	$(PYTHON) scripts/web_serve.py $(PORT)
+
+web-pages: web
+	./scripts/publish_pages.sh
 
 clean:
 	rm -rf build $(WEB_DSP)
