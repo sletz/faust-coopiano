@@ -4,8 +4,10 @@
 //
 //   render SCORE OUT.wav [voices=16]
 //
-// SCORE lines: `note ONSET_S KEY VELOCITY DURATION_S` (velocity 0..1) or
-// `pedal TIME_S POSITION` (0 up .. 1 down); `#` starts a comment.
+// SCORE lines: `note ONSET_S KEY VELOCITY DURATION_S` (velocity 0..1),
+// `pedal TIME_S POSITION` (0 up .. 1 down) or `control TIME_S PATH VALUE`
+// (the control of that path, in every voice and in the body that have one:
+// `control 0 reverb/mix 0` is a dry render); `#` starts a comment.
 
 #include <algorithm>
 #include <chrono>
@@ -24,18 +26,27 @@ struct Meta {
     virtual ~Meta() {}
     virtual void declare(const char*, const char*) {}
 };
+// Controls by path without the program name ("gain", "action/pedal",
+// "reverb/mix"), as the web page keys them: a label alone is ambiguous (the
+// voice has both "gain", the velocity, and "resonance/gain").
 struct UI {
     std::map<std::string, double*> zones;
+    std::vector<std::string> boxes;
     virtual ~UI() {}
-    virtual void openTabBox(const char*) {}
-    virtual void openHorizontalBox(const char*) {}
-    virtual void openVerticalBox(const char*) {}
-    virtual void closeBox() {}
-    virtual void addButton(const char* l, double* z) { zones[l] = z; }
-    virtual void addCheckButton(const char* l, double* z) { zones[l] = z; }
-    virtual void addVerticalSlider(const char* l, double* z, double, double, double, double) { zones[l] = z; }
-    virtual void addHorizontalSlider(const char* l, double* z, double, double, double, double) { zones[l] = z; }
-    virtual void addNumEntry(const char* l, double* z, double, double, double, double) { zones[l] = z; }
+    std::string path(const char* l) const {
+        std::string p;
+        for (size_t i = 1; i < boxes.size(); ++i) p += boxes[i] + "/";
+        return p + l;
+    }
+    virtual void openTabBox(const char* l) { boxes.push_back(l); }
+    virtual void openHorizontalBox(const char* l) { boxes.push_back(l); }
+    virtual void openVerticalBox(const char* l) { boxes.push_back(l); }
+    virtual void closeBox() { boxes.pop_back(); }
+    virtual void addButton(const char* l, double* z) { zones[path(l)] = z; }
+    virtual void addCheckButton(const char* l, double* z) { zones[path(l)] = z; }
+    virtual void addVerticalSlider(const char* l, double* z, double, double, double, double) { zones[path(l)] = z; }
+    virtual void addHorizontalSlider(const char* l, double* z, double, double, double, double) { zones[path(l)] = z; }
+    virtual void addNumEntry(const char* l, double* z, double, double, double, double) { zones[path(l)] = z; }
     virtual void addHorizontalBargraph(const char*, double*, double, double) {}
     virtual void addVerticalBargraph(const char*, double*, double, double) {}
     virtual void addSoundfile(const char*, const char*, void**) {}
@@ -62,7 +73,7 @@ namespace gen_body {
 using gen_voice::coopiano_voice;
 using gen_body::coopiano_body;
 
-struct Event { int64_t frame; int kind; int key; double value; double duration; };  // kind 0 note, 1 pedal
+struct Event { int64_t frame; int kind; int key; double value; double duration; std::string label; };  // kind 0 note, 1 pedal, 2 release, 3 control
 
 static void write_wav(const std::string& path, const std::vector<float>& lr, int sr) {
     std::ofstream f(path, std::ios::binary);
@@ -91,13 +102,17 @@ int main(int argc, char** argv) {
         if (what == "note") {
             double t, vel, dur; int key;
             in >> t >> key >> vel >> dur;
-            events.push_back({(int64_t)std::llround(t * SR), 0, key, vel, dur});
-            events.push_back({(int64_t)std::llround((t + dur) * SR), 2, key, 0, 0});
+            events.push_back({(int64_t)std::llround(t * SR), 0, key, vel, dur, ""});
+            events.push_back({(int64_t)std::llround((t + dur) * SR), 2, key, 0, 0, ""});
             end_s = std::max(end_s, t + dur);
         } else if (what == "pedal") {
             double t, pos;
             in >> t >> pos;
             events.push_back({(int64_t)std::llround(t * SR), 1, 0, pos, 0});
+        } else if (what == "control") {
+            double t, value; std::string label;  // a control path
+            in >> t >> label >> value;
+            events.push_back({(int64_t)std::llround(t * SR), 3, 0, value, 0, label});
         }
     }
     std::stable_sort(events.begin(), events.end(), [](const Event& a, const Event& b) { return a.frame < b.frame; });
@@ -142,9 +157,13 @@ int main(int argc, char** argv) {
             } else if (e.kind == 2) {
                 for (int v = 0; v < NV; ++v)
                     if (owner[v] == e.key && since[v] == INT64_MAX) { *vui[v].zones["gate"] = 0; since[v] = pos; owner[v] = -1; break; }
+            } else if (e.kind == 1) {
+                for (int v = 0; v < NV; ++v) *vui[v].zones["action/pedal"] = e.value;
+                *bui.zones["action/pedal"] = e.value;
             } else {
-                for (int v = 0; v < NV; ++v) *vui[v].zones["pedal"] = e.value;
-                *bui.zones["pedal"] = e.value;
+                for (int v = 0; v < NV; ++v)
+                    if (vui[v].zones.count(e.label)) *vui[v].zones[e.label] = e.value;
+                if (bui.zones.count(e.label)) *bui.zones[e.label] = e.value;
             }
         }
         int n = (int)std::min<int64_t>(B, total - pos);
