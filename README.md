@@ -104,7 +104,7 @@ faust-rs commit that built it in the message, and push.
   starts from the defaults and sets some controls (never the pedal); the other
   tabs then show what it set, and a control changed afterwards marks it as
   modified. The soundboard's modes stay those fitted to the C++ grand.
-- **Cost.** Built with faust-rs `main-dev` at `f69129c1`, the wasm runs 1.3 to 2
+- **Cost.** Built with faust-rs `main-dev` at `8b6d7930`, the wasm runs 1.3 to 2
   times slower than the native build (`make web-check`, node on an Apple M5,
   second of steady state):
   | DSP | pedal up | pedal down | native, pedal up | Emscripten, pedal up |
@@ -119,6 +119,11 @@ faust-rs commit that built it in the message, and push.
   instead of loading it again (`f69129c1`) did the same for the light body
   (report, point 14). The page starts with the light body and 8 voices, and shows
   the load of the audio thread.
+- **Safari.** It plays since faust-rs `8b6d7930`, which lets the variables of
+  `compute` share wasm locals: Safari's engine gives each local a stack slot,
+  and the voice's 37,720 locals overflowed the AudioWorklet thread's stack
+  (now 2,177). Safari computes the wasm about twice as slowly as Chrome (light
+  body 40 % of a core, a voice 8 %, under `jsc`): fewer voices sound at once.
 
 ## How the model streams what the C++ prepares
 

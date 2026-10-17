@@ -110,7 +110,7 @@ dans le message le commit faust-rs qui l'a construit, et pousser.
   onglets montrent alors ce qu'il a réglé, et un réglage changé ensuite le
   marque comme modifié. Les modes de la table d'harmonie restent ceux ajustés au
   grand piano C++.
-- **Coût.** Compilé par faust-rs `main-dev` à `f69129c1`, le wasm tourne 1,3 à 2
+- **Coût.** Compilé par faust-rs `main-dev` à `8b6d7930`, le wasm tourne 1,3 à 2
   fois plus lentement que la version native (`make web-check`, node sur un Apple
   M5, seconde en régime établi) :
   | DSP | pédale levée | pédale enfoncée | natif, pédale levée | Emscripten, pédale levée |
@@ -125,6 +125,12 @@ dans le message le commit faust-rs qui l'a construit, et pousser.
   une valeur écrite au lieu de la relire (`f69129c1`) y a mis le corps léger
   (rapport, point 14). La page démarre avec le corps léger et 8 voix, et affiche
   la charge du thread audio.
+- **Safari.** Elle y joue depuis faust-rs `8b6d7930`, qui fait partager les
+  locales wasm aux variables de `compute` : le moteur de Safari donne à chaque
+  locale une case de pile, et les 37 720 locales de la voix débordaient la pile
+  du thread de l'AudioWorklet (2 177 désormais). Safari calcule le wasm environ
+  deux fois moins vite que Chrome (corps léger 40 % d'un cœur, une voix 8 %,
+  sous `jsc`) : moins de voix sonnent ensemble.
 
 ## Ce que le modèle calcule au fil de l'eau
 
