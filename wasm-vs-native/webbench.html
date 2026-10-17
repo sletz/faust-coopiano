@@ -1,0 +1,49 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>coopiano DSP cost</title>
+<pre id="out">running</pre>
+<script type="module">
+// Cost of each historical module set, as scripts/web_check.mjs measures it:
+// a share of a core per second of audio, after two seconds of warm-up.
+import { FaustWasmDsp } from "../web/faust-wasm-dsp.js";
+const FS = 44100, BLOCK = 128;
+const params = new URLSearchParams(location.search);
+const sets = (params.get("sets") || "859cdb5,d733961,e14d953").split(",");
+const rounds = Number(params.get("rounds") || 2);
+const out = document.getElementById("out");
+function log(line) { console.log("BENCH " + line); out.textContent += "\n" + line; }
+async function load(set, name) {
+  const json = await (await fetch(`../build/hist/${set}/${name}.json`)).json();
+  const module = await WebAssembly.compile(await (await fetch(`../build/hist/${set}/${name}.wasm`)).arrayBuffer());
+  return { json, module };
+}
+function cost(dsp) {
+  for (let c = 0; c < dsp.inputs; c += 1) dsp.input(c).fill(1e-3);
+  const blocks = Math.round(FS / BLOCK);
+  let ms = 0;
+  for (let b = 0; b < 3 * blocks; b += 1) {
+    const t0 = performance.now();
+    dsp.compute(BLOCK);
+    if (b >= 2 * blocks) ms += performance.now() - t0;
+  }
+  return (100 * ms / 1000).toFixed(1);
+}
+log("agent " + navigator.userAgent);
+try {
+  for (let r = 0; r < rounds; r += 1) {
+    for (const set of sets) {
+      const voice = new FaustWasmDsp(await load(set, "voice"), FS, BLOCK);
+      voice.set("freq", 261.6255653); voice.set("gate", 1);
+      const cells = [`voice ${cost(voice)}`];
+      for (const name of ["body", "body_light"]) {
+        const up = cost(new FaustWasmDsp(await load(set, name), FS, BLOCK));
+        const pedalled = new FaustWasmDsp(await load(set, name), FS, BLOCK);
+        pedalled.set("action/pedal", 1);
+        cells.push(`${name} ${up}/${cost(pedalled)}`);
+      }
+      log(`round ${r} ${set}: ${cells.join("  ")}`);
+    }
+  }
+} catch (e) { log("ERROR " + e); }
+log("DONE");
+</script>
