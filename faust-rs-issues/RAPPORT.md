@@ -795,12 +795,11 @@ sortis de domaines `on_change`, et les tirages, des curseurs. L'expression est d
 partagée entre le domaine et le calcul de la force, hors du domaine. faust-rs la
 déclare d'un côté et la lit de l'autre.
 
-**Reproducteur.** Il n'y a pas encore de cas minimal : les essais réduits à une
-récursion, deux domaines et une sortie abandonnée compilent. Sur le dépôt, à partir
-du commit qui porte la borne, retirer la barrière reproduit l'erreur :
+**Reproducteur.** Le cas réduit est donné plus bas (« Cause exacte et
+correction »). Sur le programme réel, `coopiano.lib` 0.2.3 (sans barrière)
+reproduit l'erreur avec un faust-rs antérieur à `ccca27eb` :
 
 ```bash
-sed -i '' 's/si.bus(4), _opaque))/si.bus(4), _))/' ../dsp/coopiano.lib
 $FP --double -I ../dsp -n 1 --in zero --quiet ../dsp/coopiano_hammer.dsp
 ```
 
@@ -810,8 +809,9 @@ domaine `ondemand` et l'extérieur : elle est déclarée dans le bloc du domaine
 hissée avec lui, et lue hors de lui. Le vérificateur FIR l'attrape, ce qui est la
 bonne issue.
 
-**Contournement dans `coopiano.lib`.** `rd` entre dans le domaine derrière
-`_opaque`. Cela coûte 96 `max` par échantillon et ne change pas les sorties.
+**Contournement dans `coopiano.lib` 0.2.2.** `rd` entrait dans le domaine derrière
+`_opaque`. Cela coûtait 96 `max` par échantillon et ne changeait pas les sorties.
+Il est retiré depuis la correction.
 
 **Correction possible.** D'abord réduire un cas minimal : une expression de
 commande lue à la fois dans un domaine `ondemand` et dans une récursion hors de
@@ -850,8 +850,10 @@ Validation :
 - le programme du marteau compile sans la barrière, et sa sortie est identique
   bit pour bit à celle de la version avec barrière.
 
-La barrière reste dans `coopiano.lib` tant que les binaires utilisés ne contiennent
-pas la correction ; elle ne change pas les sorties.
+La barrière est retirée de `coopiano.lib` 0.2.3, qui demande donc un faust-rs à
+partir de `ccca27eb`. Sans elle, les sorties restent identiques bit pour bit : le
+marteau, la voix sur A0, A1 et A2 à vélocité 1, et les cinq canaux de la voix sur
+C1.
 
 ## Remarque : le délai par défaut du CLI
 

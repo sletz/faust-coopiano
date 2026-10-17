@@ -63,7 +63,7 @@
 //########################################################################################
 
 declare name "coopiano";
-declare version "0.2.2";
+declare version "0.2.3";
 declare author "Stéphane Letz";
 declare copyright "Faust model: GRAME, 2026; coopiano C++ model: Peter Cooper, 2026";
 declare license "MIT";
@@ -1495,12 +1495,9 @@ with { on = m < 56.0; };
 // instead of their product: at fortissimo in the wound bass it would otherwise
 // outgrow the partials driving it. Inputs: the slot outputs and the pairs' bound
 // constants (`_pair_bound`); outputs the vertical and the horizontal factor of
-// each pair. Only the five slot outputs it reads enter the domain, the readout
-// behind an opaque barrier: it depends on control-rate values only (the string's
-// parameters and draws), and without the barrier faust-rs declared it inside the
-// domain and used it outside whenever the hammer force is an output
-// (`dsp/coopiano_hammer.dsp`: FIR verification FRS-FIR-0001, "use of undeclared
-// variable").
+// each pair. Only the five slot outputs it reads enter the domain. (A faust-rs
+// older than `ccca27eb`, 2026-10-17, rejects `dsp/coopiano_hammer.dsp` here:
+// FRS-FIR-0001 "use of undeclared variable", point 16 of the faust-rs report.)
 _slot_mags = \(vr, vi, hr, hi, rd).(abs(rd) * sqrt(vr * vr + vi * vi), abs(rd) * sqrt(hr * hr + hi * hi));
 _gain_route = route(2 * NS + _NPAIR, 5 * _NPAIR, par(q, 5 * _NPAIR, (src(q) + 1, q + 1)))
 with {
@@ -1529,7 +1526,7 @@ _phantom_block(m, win) = (si.bus(S) <: si.bus(2 * S)), si.bus(2 * _NPAIR), _, _,
                   par(i, _NPAIR, (2 * S + i + 1, S + i + 1)),
                   par(i, S, (S + i + 1, S + _NPAIR + i + 1)),
                   par(i, _NPAIR + 3, (2 * S + _NPAIR + i + 1, 2 * S + _NPAIR + i + 1)))
-    : (si.bus(S + _NPAIR), ((win * on), par(k, NS, (!, !, !, si.bus(4), _opaque)), si.bus(_NPAIR) : ondemand(_phantom_gains)), _, _, _)
+    : (si.bus(S + _NPAIR), ((win * on), par(k, NS, (!, !, !, si.bus(5))), si.bus(_NPAIR) : ondemand(_phantom_gains)), _, _, _)
     : (_phantoms(m), _, _, _)
 with {
     S = _SLOT_OUT * NS;

@@ -42,7 +42,9 @@ make web        # the web version in web/dsp; make web-serve, then http://localh
 `COOPIANO` and `FAUST_RS` point to the two checkouts (defaults `../../coopiano`
 and `../faust-rs`, release `faust-rs` and `faustprobe` built). With faust-rs
 `main-dev` of 2026-10-16, compiling the voice takes about 8 s and the body about
-5 s (25 s and 45 s the day before; see *faust-rs* below). `JOBS` (default 4) sets
+5 s (25 s and 45 s the day before; see *faust-rs* below). `coopiano.lib` 0.2.3
+needs faust-rs `main-dev` from `ccca27eb` (2026-10-17) on: an older one rejects
+`dsp/coopiano_hammer.dsp` (point 16 of the report). `JOBS` (default 4) sets
 how many renders `make contact`, `notes` and `keyboard` run side by side.
 
 ## Web version

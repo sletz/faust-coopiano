@@ -42,8 +42,10 @@ make web        # la version web dans web/dsp ; make web-serve, puis http://loca
 `COOPIANO` et `FAUST_RS` désignent les deux dépôts (par défaut `../../coopiano`
 et `../faust-rs`, avec `faust-rs` et `faustprobe` compilés en release). Avec le
 faust-rs `main-dev` du 16 octobre 2026, la voix compile en 8 s environ et le corps
-en 5 s (25 s et 45 s la veille ; voir *faust-rs*). `JOBS` (4 par défaut) fixe le
-nombre de rendus que `make contact`, `notes` et `keyboard` lancent en parallèle.
+en 5 s (25 s et 45 s la veille ; voir *faust-rs*). `coopiano.lib` 0.2.3 demande
+le faust-rs `main-dev` à partir de `ccca27eb` (17 octobre 2026) : un plus ancien
+refuse `dsp/coopiano_hammer.dsp` (point 16 du rapport). `JOBS` (4 par défaut) fixe
+le nombre de rendus que `make contact`, `notes` et `keyboard` lancent en parallèle.
 
 ## Version web
 
