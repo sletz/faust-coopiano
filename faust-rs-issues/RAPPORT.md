@@ -53,7 +53,7 @@ ceux de `bf65d311`.
 | 3 | A corrigé, B rejeté | `50e32677` | `r02`, une somme de 1 024 termes : 2,94 s → 0,25 s, désormais quadratique (chaque somme partielle ré-aplatit ses k termes, comme en C++) ; groupée par 32 : 0,05 s. Sur le corps, `gsum` fait encore gagner 0,5 s (4,5 s groupé, 5,0 s sans). B, sauter le second `simplify`, changerait le code de 151 programmes du corpus : écarté |
 | 4 | corrigé | `06ad235a` (DIFF-BEH-022) | `r09a` : aucun `powf`, 133× le temps réel au lieu de 29× (`r09b` : 129×) ; le produit est écrit en ligne sur tous les backends, valeurs identiques au helper `faustpower` du C++ |
 | 5 | corrigé | `1c43f0cc`, `ad118420` | `r10b` passe ; l'instrument complet tourne sous `faustprobe --nvoices` avec son corps en `effect` (5 → 2 canaux), et `make check` le vérifie |
-| 6 | ouvert | — | `r13a` : les 15 `exp` sont toujours hissés avant la boucle ; le contournement `on_change` reste nécessaire |
+| 6 | corrigé (17 octobre) | `aa7027e7`, `c6d9aece` (DIFF-BEH-024) | `r13a` : aucun `exp` avant la boucle, les 15 sont calculés dans la garde, au premier déclenchement de chaque bloc ; `on_change` se passe de `sAndH` (`coopiano.lib` 0.2.4). Voir la mise à jour du 17 octobre au point 6 |
 | 7 | diagnostic corrigé ; mots réservés conservés | `354e2080` | l'erreur nomme le mot réservé et propose `rad_` ; rendre ces mots contextuels a été écarté par décision |
 | 8 | corrigé | `354e2080` | `-max(…)` et `-sin(…)` expliquent la règle et proposent `0 - …` ; `-L.g(…)` est localisé sur le `-` et expliqué |
 | 9 | corrigé | `354e2080` | `r08` et `r08b` pointent le `:` fautif de la ligne 4 (l'évaluateur garde la composition source de chaque composition qu'il construit) |
@@ -81,7 +81,7 @@ faust-rs.
 | 3 | Normalisation cubique des longues sommes (`greatest_divisor`), faite deux fois | performance de compilation | haute | même algorithme en C++, mais une seule passe |
 | 4 | `x*x` émis en `powf(x, 2)` : appel libm dans le JIT, 7 fois plus lent | performance + parité | moyenne | le C++ émet `faustpower2_f` ; écart non documenté |
 | 5 | `faustprobe --nvoices` plante si `effect` change le nombre de canaux | bug (panic) | moyenne | outil propre à faust-rs |
-| 6 | `ondemand` : le travail au taux de bloc sort du domaine | performance d'exécution | moyenne | identique dans la branche C++ de référence |
+| 6 | `ondemand` : le travail au taux de bloc sort du domaine | performance d'exécution | moyenne ; corrigé (`aa7027e7`, `c6d9aece`) | identique dans la branche C++ de référence |
 | 7 | `rad` et `fad` (et `ondemand`…) sont des mots réservés | compatibilité | moyenne | le C++ 2.90.8 accepte `rad` comme identificateur ; écart non documenté |
 | 8 | Moins unaire devant une primitive ou un accès : messages obscurs | diagnostic | basse | refusé aussi en C++ (parité) |
 | 9 | Erreur d'arité attribuée à une ligne sans rapport | diagnostic | basse | le C++ ne donne aucune position |
@@ -450,6 +450,53 @@ la question à P9.
   bloc, et seulement si l'horloge bat.
 - Dans les deux cas, documenter le changement comme écart volontaire au registre des
   différences, ou le proposer en amont.
+
+**Mise à jour du 17 octobre : corrigé.** faust-rs `main-dev` à `c6d9aece`.
+
+- **`aa7027e7`, l'option c.** Dans une garde `ondemand` booléenne, une valeur au
+  taux de bloc dont seule la charge du domaine a besoin est calculée au premier
+  déclenchement de chaque bloc, dans un prologue unique par garde :
+  `if (iSlowODDone<n> == 0) { … ; iSlowODDone<n> = 1; }`. Une valeur dont le code
+  hors du domaine a aussi besoin reste hissée avant la boucle. L'`ondemand` entier,
+  `upsampling`, `downsampling` et `-ec` gardent le hissage. Les sorties sont
+  identiques au bit près ; l'écart au C++ est inscrit au registre (DIFF-BEH-024).
+- **`c6d9aece`.** Le stockage de maintien (`fPerm<i> = v`) d'une telle valeur se
+  fait dans le prologue, une fois par bloc, et la valeur ne reste plus vivante
+  pendant toute la boucle. Trouvé en appliquant la simplification aux corps : sans
+  ce correctif, leurs 5 010 valeurs maintenues portaient le corps léger de 18 % à
+  26–28 % d'un cœur en wasm.
+- **`r13a`** : aucun `exp` avant la boucle, les 15 sont dans le prologue de la
+  garde.
+- **La voix sans contournement** (wasm, do 4 tenu) : 22 270 instructions par
+  échantillon au lieu de 44 900. Avec `sAndH`, elle en faisait 20 150.
+
+**coopiano 0.2.4** écrit donc `on_change(chg, x, f) = (chg, x) : ondemand(f)`.
+Coût en wasm (node, % d'un cœur, pédale levée), 0.2.4 contre 0.2.3 :
+
+| DSP | 0.2.4 | 0.2.3 |
+|---|---|---|
+| voix | 5,1–5,2 | 5,1–5,2 |
+| corps imagé | 43,6–44,8 | 41,5–44,1 |
+| corps léger | 21,2–24,6 | 17,9–18,5 |
+
+En natif (`scripts/cost.sh`, même compilateur `c6d9aece`), 0.2.4 contre 0.2.3 :
+
+- voix : 3,3 % contre 3,1 % ;
+- corps imagé : 37,5 % contre 37,2 % pédale levée, 41,0 % contre 40,6 % avec la
+  pédale ;
+- corps léger : 9,9 % contre 10,3 % pédale levée, 12,2 % contre 14,6 % avec la
+  pédale.
+
+`make test` donne exactement les résultats de `results/`, et le wasm correspond à
+`faustprobe` à −271 dB du pic ou mieux.
+
+**Reste : les entrées constantes.** `_res_key` (`21.0 + g`) et `_board_chunks`
+(`0.0`) passent une entrée constante à `on_change`. Sans `sAndH`, ce que la charge
+calcule de cette constante devient une constante d'initialisation, stockée dans la
+structure du DSP : environ 5 900 champs de plus dans le corps léger, et 46,7 ko.
+C'est probablement la cause des 3 à 6 points de plus du corps léger pédale levée,
+car le code par échantillon hors des gardes a la même taille. Garder `sAndH` à ces
+deux appels redonne 18,8–18,9 %. D4 est conservé partout, par choix.
 
 ## 7. `rad` et `fad` sont des mots réservés
 

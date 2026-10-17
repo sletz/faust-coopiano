@@ -63,7 +63,7 @@
 //########################################################################################
 
 declare name "coopiano";
-declare version "0.2.3";
+declare version "0.2.4";
 declare author "Stéphane Letz";
 declare copyright "Faust model: GRAME, 2026; coopiano C++ model: Peter Cooper, 2026";
 declare license "MIT";
@@ -1917,10 +1917,13 @@ gsum2(n, G) = ro.interleave(2, n) : gsum(n, G), gsum(n, G);
 
 //-----------------------------------`(cp.)on_change`-----------------------------------
 // `f(x)` computed only on the samples where `chg` fires, its output held between.
-// `x` enters the faust-rs `ondemand` domain as a held audio-rate copy: a
-// control-rate input would let the compiler hoist the computation out of the
-// domain to block rate (faust-rs-issues/RAPPORT.md, point 6). The voice computes
-// its parameters this way.
+// The voice and the bodies compute their parameters this way. Needs faust-rs
+// `c6d9aece` or later, which computes control-rate work in a 0/1 `ondemand` at the
+// first fire of each block and stores a held value there (faust-rs-issues/RAPPORT.md,
+// point 6); from `aa7027e7` to `75bca56b` the bodies cost up to 45 % more in wasm.
+// With an older faust-rs, or with the Faust C++ compiler, the work is hoisted out
+// of the domain to block rate and the wasm voice costs 2.2 times as much;
+// `(chg, ba.sAndH(chg, x)) : ondemand(f)` (0.2.3) avoids that with any compiler.
 //
 // #### Usage
 //
@@ -1941,7 +1944,7 @@ gsum2(n, G) = ro.interleave(2, n) : gsum(n, G), gsum(n, G);
 // ```
 //----------------------------------------------------------------------------------------
 declare on_change license "MIT";
-on_change(chg, x, f) = (chg, ba.sAndH(chg, x)) : ondemand(f);
+on_change(chg, x, f) = (chg, x) : ondemand(f);
 
 
 //==================================== Bridge regions ====================================

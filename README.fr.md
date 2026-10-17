@@ -42,9 +42,12 @@ make web        # la version web dans web/dsp ; make web-serve, puis http://loca
 `COOPIANO` et `FAUST_RS` désignent les deux dépôts (par défaut `../../coopiano`
 et `../faust-rs`, avec `faust-rs` et `faustprobe` compilés en release). Avec le
 faust-rs `main-dev` du 16 octobre 2026, la voix compile en 8 s environ et le corps
-en 5 s (25 s et 45 s la veille ; voir *faust-rs*). `coopiano.lib` 0.2.3 demande
-le faust-rs `main-dev` à partir de `ccca27eb` (17 octobre 2026) : un plus ancien
-refuse `dsp/coopiano_hammer.dsp` (point 16 du rapport). `JOBS` (4 par défaut) fixe
+en 5 s (25 s et 45 s la veille ; voir *faust-rs*). `coopiano.lib` 0.2.4 demande
+le faust-rs `main-dev` à partir de `c6d9aece` (17 octobre 2026). Son `on_change`
+compte sur lui pour ne calculer le travail au taux de contrôle que lorsque son
+horloge bat (point 6 du rapport) : avec un faust-rs plus ancien, la voix wasm
+coûte 2,2 fois plus et les corps jusqu'à 45 % de plus, et un faust-rs antérieur à
+`ccca27eb` refuse `dsp/coopiano_hammer.dsp` (point 16). `JOBS` (4 par défaut) fixe
 le nombre de rendus que `make contact`, `notes` et `keyboard` lancent en parallèle.
 
 ## Version web
@@ -110,14 +113,22 @@ dans le message le commit faust-rs qui l'a construit, et pousser.
   onglets montrent alors ce qu'il a réglé, et un réglage changé ensuite le
   marque comme modifié. Les modes de la table d'harmonie restent ceux ajustés au
   grand piano C++.
-- **Coût.** Compilé par faust-rs `main-dev` à `8b6d7930`, le wasm tourne 1,3 à 2
-  fois plus lentement que la version native (`make web-check`, node sur un Apple
-  M5, seconde en régime établi) :
-  | DSP | pédale levée | pédale enfoncée | natif, pédale levée | Emscripten, pédale levée |
+- **Coût.** Compilé par faust-rs `main-dev` à `c6d9aece`, le wasm tourne 1,2 à
+  2,5 fois plus lentement que la version native (`make web-check`, node sur un
+  Apple M5, seconde en régime établi ; natif : `scripts/cost.sh`) :
+  | DSP | pédale levée | pédale enfoncée | natif, pédale levée | Emscripten, pédale levée (0.2.3) |
   |---|---|---|---|---|
-  | voix (une note tenue) | 5,2 à 5,7 % | | 3,1 % | 5,7 % |
-  | corps léger | 18 à 19 % | 39 à 41 % | 10 % | 20 % |
-  | corps imagé | 45 à 47 % | 67 à 68 % | 36 % | 49 % |
+  | voix (une note tenue) | 5,1 à 5,2 % | | 3,3 % | 5,7 % |
+  | corps léger | 21 à 25 % | 38 à 42 % | 9,9 % | 20 % |
+  | corps imagé | 44 à 45 % | 63 à 65 % | 37,5 % | 49 % |
+  `coopiano.lib` 0.2.4 calcule les paramètres sans `ba.sAndH` (rapport,
+  point 6). Face à 0.2.3 avec le même compilateur, la voix et le corps imagé
+  coûtent autant en wasm, et le corps léger 3 à 6 points de plus pédale levée.
+  Deux appels d'`on_change` reçoivent une entrée constante (`_res_key`,
+  `_board_chunks`) : ce qu'ils en calculent devient environ 5 900 constantes
+  d'initialisation stockées dans la structure du DSP. En natif, la voix coûte 6 à
+  8 % de plus (3,3 % contre 3,1 %), et le corps léger 2,4 points de moins avec la
+  pédale (12,2 % contre 14,6 %).
   faust-rs `354e2080` donnait 7,8 %, 41 % et 95 %. Placer les adresses constantes
   de la structure dans le décalage memarg des chargements et des écritures
   (`51642a20`) a mis la voix et le corps imagé au niveau du même C++ compilé par
@@ -405,11 +416,13 @@ Corrigé :
   (`make check`) ;
 - les diagnostics nomment les mots réservés (`rad` et `fad`, qui restent réservés),
   expliquent `-max(...)` et `-L.g(...)`, et situent une erreur d'arité sur la
-  composition fautive.
+  composition fautive ;
+- le travail au taux de contrôle reste dans un domaine `ondemand` 0/1, calculé au
+  premier déclenchement de chaque bloc (`aa7027e7`, `c6d9aece`, 17 octobre 2026) :
+  `on_change` ne tient plus son entrée au taux audio (`coopiano.lib` 0.2.4).
 
 Toujours ouvert : `-vec` sur la voix ne termine pas (planification vectorielle en
-O(L⁴) sur 31 825 boucles), et le travail au taux de bloc sort d'un domaine
-`ondemand` si son entrée n'est pas tenue au taux audio, d'où `on_change`. Trouvé
+O(L⁴) sur 31 825 boucles). Trouvé
 avec la version web : le code du backend wasm était 1,3 à 1,8 fois plus lent que
 celui d'Emscripten sur le même C++, un écart que `main-dev` a comblé
 (`51642a20`, et `f69129c1` pour le corps léger ; point 14), et une somme d'une constante,

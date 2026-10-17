@@ -42,9 +42,12 @@ make web        # the web version in web/dsp; make web-serve, then http://localh
 `COOPIANO` and `FAUST_RS` point to the two checkouts (defaults `../../coopiano`
 and `../faust-rs`, release `faust-rs` and `faustprobe` built). With faust-rs
 `main-dev` of 2026-10-16, compiling the voice takes about 8 s and the body about
-5 s (25 s and 45 s the day before; see *faust-rs* below). `coopiano.lib` 0.2.3
-needs faust-rs `main-dev` from `ccca27eb` (2026-10-17) on: an older one rejects
-`dsp/coopiano_hammer.dsp` (point 16 of the report). `JOBS` (default 4) sets
+5 s (25 s and 45 s the day before; see *faust-rs* below). `coopiano.lib` 0.2.4
+needs faust-rs `main-dev` from `c6d9aece` (2026-10-17) on. Its `on_change` counts
+on it to compute control-rate work only when its clock fires (point 6 of the
+report): with an older faust-rs the wasm voice costs 2.2 times as much and the
+bodies up to 45 % more, and one older than `ccca27eb` rejects
+`dsp/coopiano_hammer.dsp` (point 16). `JOBS` (default 4) sets
 how many renders `make contact`, `notes` and `keyboard` run side by side.
 
 ## Web version
@@ -104,14 +107,21 @@ faust-rs commit that built it in the message, and push.
   starts from the defaults and sets some controls (never the pedal); the other
   tabs then show what it set, and a control changed afterwards marks it as
   modified. The soundboard's modes stay those fitted to the C++ grand.
-- **Cost.** Built with faust-rs `main-dev` at `8b6d7930`, the wasm runs 1.3 to 2
+- **Cost.** Built with faust-rs `main-dev` at `c6d9aece`, the wasm runs 1.2 to 2.5
   times slower than the native build (`make web-check`, node on an Apple M5,
-  second of steady state):
-  | DSP | pedal up | pedal down | native, pedal up | Emscripten, pedal up |
+  second of steady state; native: `scripts/cost.sh`):
+  | DSP | pedal up | pedal down | native, pedal up | Emscripten, pedal up (0.2.3) |
   |---|---|---|---|---|
-  | voice (one note held) | 5.2 to 5.7 % | | 3.1 % | 5.7 % |
-  | light body | 18 to 19 % | 39 to 41 % | 10 % | 20 % |
-  | imaged body | 45 to 47 % | 67 to 68 % | 36 % | 49 % |
+  | voice (one note held) | 5.1 to 5.2 % | | 3.3 % | 5.7 % |
+  | light body | 21 to 25 % | 38 to 42 % | 9.9 % | 20 % |
+  | imaged body | 44 to 45 % | 63 to 65 % | 37.5 % | 49 % |
+  `coopiano.lib` 0.2.4 computes the parameters without `ba.sAndH` (report,
+  point 6). Against 0.2.3 with the same compiler, the wasm voice and imaged body
+  cost the same, and the light body 3 to 6 points more with the pedal up. Two
+  `on_change` calls take a constant input (`_res_key`, `_board_chunks`): what
+  they compute from it now lands in the DSP struct as about 5,900 init-time
+  constants. Natively the voice costs 6 to 8 % more (3.3 % against 3.1 %), and
+  the light body 2.4 points less with the pedal (12.2 % against 14.6 %).
   faust-rs `354e2080` gave 7.8 %, 41 % and 95 %. Putting the constant struct
   addresses in the memarg offset of the loads and stores (`51642a20`) brought the
   voice and the imaged body level with the same C++ compiled by Emscripten
@@ -378,11 +388,13 @@ the commits and the measures. Fixed:
 - `faustprobe --nvoices` runs the instrument with its body as `effect` (`make check`);
 - the diagnostics now name the reserved words (`rad`, `fad`, which stay reserved),
   explain `-max(...)` and `-L.g(...)`, and locate an arity error at the faulty
-  composition.
+  composition;
+- control-rate work stays in a 0/1 `ondemand` domain, computed at the first fire
+  of each block (`aa7027e7`, `c6d9aece`, 2026-10-17): `on_change` no longer holds
+  its input at the audio rate (`coopiano.lib` 0.2.4).
 
 Still open: `-vec` on the voice does not finish (vector planning in O(L^4) over
-31,825 loops), and block-rate work leaves an `ondemand` domain unless its input
-is held at the audio rate, hence `on_change`. Found with the web version: the
+31,825 loops). Found with the web version: the
 wasm backend's code was 1.3 to 1.8 times slower than Emscripten's on the same
 C++, a gap `main-dev` closed (`51642a20`, and `f69129c1` for the light body; point 14), and a sum of a constant, a control and a signal is grouped
 otherwise than in C++ (point 15): the slow part is no longer hoisted and the
