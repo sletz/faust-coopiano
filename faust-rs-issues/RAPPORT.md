@@ -91,7 +91,7 @@ faust-rs.
 | 13 | `porting/MEMOIZATION.md` décrit à tort les environnements C++ comme hash-consés | documentation | basse | — |
 | 14 | Code wasm 1,3 à 1,8 fois plus lent que le C++ du même programme compilé par Emscripten | performance d'exécution | moyenne (version web) | à comparer au wasm du C++ |
 | 15 | Somme constante + commande + signal groupée autrement que dans l'amont 2.90 : partie lente non hissée, arrondi différent | performance d'exécution + parité numérique | moyenne | la référence épinglée (2.84.3) groupe comme faust-rs ; l'amont 2.90 a changé (`d4d51e5ed`) |
-| 16 | Variable de contrôle déclarée dans un domaine `ondemand` et lue hors de lui (FRS-FIR-0001, « use of undeclared variable ») | bug (génération FIR) | moyenne | — |
+| 16 | Variable de contrôle déclarée dans un domaine `ondemand` et lue hors de lui (FRS-FIR-0001, « use of undeclared variable ») | bug (génération FIR) | moyenne ; corrigé (`ccca27eb`) | — |
 
 Les points 1 à 9 ont un reproducteur minimal. Les points 10 à 12 et 16 ont été
 observés sur le programme réel ; la cause du point 12 est identifiée par échantillonnage, mais
@@ -762,6 +762,9 @@ n'a pas intégré le correctif.
 
 ## 16. Variable déclarée dans un domaine `ondemand` et lue hors de lui
 
+**Corrigé le 17 octobre 2026 dans faust-rs `main-dev`, `ccca27eb`.** Le cas
+réduit et la cause exacte sont donnés à la fin de ce point.
+
 **Constat.** Le 17 octobre 2026, la borne des partiels fantômes (`bound_phantom`) a
 été portée dans `coopiano.lib`. Ses facteurs sont calculés dans un domaine
 `ondemand`, cadencé par les 30 ms qui suivent une frappe. Le domaine lit les états
@@ -816,6 +819,39 @@ lui, avec une sortie qui ne dépend que de la récursion. Ensuite, dans le place
 des expressions (CSE, hoisting) au moment de la construction des blocs de
 domaines, traiter une expression utilisée des deux côtés comme appartenant à la
 portée englobante.
+
+**Cause exacte et correction (`ccca27eb`).** Le cas réduit :
+
+```faust
+s(x) = x * 0.5;
+ga(x) = (button("a"), s(x)) : ondemand(\(v).(v + 1.0));
+b(x) = (button("b"), s(x), ga(x)) : ondemand(\(v, g).(v * v * g));
+core(u, x) = u * 0.5 + x, b(x) + u;
+process = core ~ _ : _, !;
+```
+
+Le contenu de `b` lit le champ tenu de `ga`. Le bloc de `ga` est donc abaissé
+pendant que celui de `b` est ouvert, puis émis dans la boucle d'échantillons,
+avant lui. `s` est d'abord abaissé dans `b`. Le cache d'abaissement
+(`RegionCache`, `crates/transform/src/signal_fir/module/region.rs`) parcourait
+toutes les portées ouvertes sous la portée courante : le corps de `ga` réutilisait
+donc le temporaire déclaré dans `b`.
+
+La correction donne à chaque portée un lien vers sa vraie parente :
+`open_child_under`, avec la profondeur du bloc ouvert du domaine parent
+(`parent_block_depth`). `ensure_guarded_block` construit tout le bloc à cette
+profondeur : horloge, champs tenus, corps et garde.
+
+Validation :
+
+- un test de non-régression, qui échoue sur le commit parent ;
+- les 595 programmes de `tests/` et `examples/` qui compilent donnent un C++
+  identique octet pour octet avant et après ;
+- le programme du marteau compile sans la barrière, et sa sortie est identique
+  bit pour bit à celle de la version avec barrière.
+
+La barrière reste dans `coopiano.lib` tant que les binaires utilisés ne contiennent
+pas la correction ; elle ne change pas les sorties.
 
 ## Remarque : le délai par défaut du CLI
 
