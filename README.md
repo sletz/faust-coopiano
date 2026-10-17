@@ -55,12 +55,16 @@ and French.
 
 ```bash
 make web        # web/dsp: the voice and both bodies compiled to wasm by faust-rs (~20 s)
+make -B web     # the same after a faust-rs change (the modules depend on dsp/ only)
 make web-serve  # serves the repository; open http://localhost:8000/web/
 make web-check  # the wasm against faustprobe, and what it costs (node)
-make web-pages  # publish web/ and web/dsp on the gh-pages branch (GitHub Pages)
 ```
 
-The published version is at https://sletz.github.io/faust-coopiano/.
+The published version is at https://sletz.github.io/faust-coopiano/. It is
+`web/` on `main`, the wasm modules included: a push to `main` that changes `web/`
+publishes it (`.github/workflows/pages.yml`, which compiles nothing). To publish
+new modules, run `make -B web` and `make web-check`, then commit `web/dsp` with the
+faust-rs commit that built it in the message, and push.
 
 - **Engine.** The voice and the two bodies are `dsp/coopiano.dsp` and
   `dsp/coopiano_light.dsp`, compiled by `faust-rs -lang wasm -double` (the voice is
@@ -100,20 +104,21 @@ The published version is at https://sletz.github.io/faust-coopiano/.
   starts from the defaults and sets some controls (never the pedal); the other
   tabs then show what it set, and a control changed afterwards marks it as
   modified. The soundboard's modes stay those fitted to the C++ grand.
-- **Cost.** Built with faust-rs `main-dev` at `51642a20`, the wasm runs 1.4 to 3
+- **Cost.** Built with faust-rs `main-dev` at `f69129c1`, the wasm runs 1.3 to 2
   times slower than the native build (`make web-check`, node on an Apple M5,
   second of steady state):
   | DSP | pedal up | pedal down | native, pedal up | Emscripten, pedal up |
   |---|---|---|---|---|
-  | voice (one note held) | 6.0 % | | 3.1 % | 5.7 % |
-  | light body | 30 % | 62 to 65 % | 10 % | 20 % |
-  | imaged body | 50 % | 92 to 96 % | 36 % | 49 % |
-  The previous faust-rs (`354e2080`) gave 7.8 %, 41 % and 95 %: putting the
-  constant struct addresses in the memarg offset of the loads and stores brought
-  the voice and the imaged body level with the same C++ compiled by Emscripten
-  (`em++ -O3`); the light body is still 1.5 times slower (report, point 14). The
-  page starts with the light body and 8 voices, and shows the load of the audio
-  thread.
+  | voice (one note held) | 5.2 to 5.7 % | | 3.1 % | 5.7 % |
+  | light body | 18 to 19 % | 39 to 41 % | 10 % | 20 % |
+  | imaged body | 45 to 47 % | 67 to 68 % | 36 % | 49 % |
+  faust-rs `354e2080` gave 7.8 %, 41 % and 95 %. Putting the constant struct
+  addresses in the memarg offset of the loads and stores (`51642a20`) brought the
+  voice and the imaged body level with the same C++ compiled by Emscripten
+  (`em++ -O3`); moving each read next to its use and reusing a stored value
+  instead of loading it again (`f69129c1`) did the same for the light body
+  (report, point 14). The page starts with the light body and 8 voices, and shows
+  the load of the audio thread.
 
 ## How the model streams what the C++ prepares
 
@@ -374,7 +379,7 @@ Still open: `-vec` on the voice does not finish (vector planning in O(L^4) over
 31,825 loops), and block-rate work leaves an `ondemand` domain unless its input
 is held at the audio rate, hence `on_change`. Found with the web version: the
 wasm backend's code was 1.3 to 1.8 times slower than Emscripten's on the same
-C++, a gap `main-dev` `51642a20` closed except for the light body (point 14), and a sum of a constant, a control and a signal is grouped
+C++, a gap `main-dev` closed (`51642a20`, and `f69129c1` for the light body; point 14), and a sum of a constant, a control and a signal is grouped
 otherwise than in C++ (point 15): the slow part is no longer hoisted and the
 rounding differs. The latter kept the damped keys of the sympathetic register
 awake after the first pedal; `coopiano.lib` 0.2.1 works around it with a

@@ -19,12 +19,11 @@
 #   make results     run every comparison and the cost measure, write results/*.txt (~30 min)
 #   make paper       the article, paper/faust-coopiano.pdf (pdflatex + bibtex)
 #   make web         the web version: the voice and both bodies compiled to wasm by
-#                    faust-rs into web/dsp (about 20 s)
+#                    faust-rs into web/dsp (about 20 s); make -B web after a faust-rs
+#                    change (the modules are versioned and depend on dsp/ only)
 #   make web-check   the wasm DSPs against faustprobe, and their cost (node)
 #   make web-serve [PORT=8000]
 #                    serve the repository and open http://localhost:PORT/web/
-#   make web-pages   publish the web version on the gh-pages branch of origin
-#                    (GitHub Pages: https://sletz.github.io/faust-coopiano/)
 #   make pianoteq    coopiano (C++ and Faust) against Pianoteq 9 on the same scores: renders
 #                    into build/pianoteq, then pianoteq/results.txt and figures (~13 min;
 #                    run scripts/pianoteq_preset.sh once first, see pianoteq/README.md)
@@ -54,7 +53,7 @@ PORT ?= 8000
 WEB_DSP = web/dsp
 NATIVE ?= -O3 -ffast-math -march=native
 
-.PHONY: help ref tables check doctests contact notes keyboard engine test render results figures paper web web-check web-serve web-pages pianoteq clean
+.PHONY: help ref tables check doctests contact notes keyboard engine test render results figures paper web web-check web-serve pianoteq clean
 help:
 	@sed -n '1,/^$$/p' Makefile | sed 's/^# \{0,1\}//'
 
@@ -150,9 +149,6 @@ web-check: web
 
 web-serve: web
 	$(PYTHON) scripts/web_serve.py $(PORT)
-
-web-pages: web
-	FAUSTRS=$(FAUSTRS) ./scripts/publish_pages.sh
 
 pianoteq:
 	COOPIANO=$(COOPIANO) ./scripts/pianoteq_render.sh

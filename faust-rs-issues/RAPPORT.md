@@ -61,7 +61,7 @@ ceux de `bf65d311`.
 | 11 | non reproduit | — | la voix qui l'a provoqué n'existe plus sous cette forme ; à réessayer si une grande fonction `compute` échoue de nouveau |
 | 12 | ouvert | — | voix en `-vec -vs 32` : 31 825 boucles et 95 060 arêtes de données ; délai de 180 s dépassé, 7 Go ; la correction proposée (chaînage par ressource) reste valable |
 | 13 | corrigé | `d8543508` | MEMOIZATION §2.4c et §3.7 décrivent désormais `gApplyMemo` |
-| 14 | ouvert (constaté le 16 au soir) | — | `r15` : le wasm de faust-rs coûte 1,3 à 1,8 fois le C++ de faust-rs compilé par `em++ -O3`, sorties identiques à faustprobe |
+| 14 | corrigé (17 octobre) | `51642a20`, `e2d758b9`, `f69129c1` | `r15` : la voix et les deux corps coûtent ce que coûte le C++ de faust-rs compilé par `em++ -O3`, ou moins (mise à jour du 17 octobre au point 14) ; sorties identiques à faustprobe |
 | 15 | corrigé (port de l'amont) | `8886a772` | `r16` : `1 - c - o` donne désormais `(1 - c) - o`, `1 - c` est hissé et la récurrence atteint 0. faust-rs suivait la référence épinglée ; c'est l'amont qui a changé (`d4d51e5ed`, 9 août 2026), porté dans faust-rs (DIFF-BEH-023) |
 
 Les causes du point 10 n'étaient pas celle supposée seule : trois coûts « par
@@ -703,6 +703,26 @@ alternées avec l'ancienne construction, machine chargée (charge 4 à 5) :
 
 La voix et le corps imagé rejoignent Emscripten ; le corps léger reste 1,5 fois
 plus lent. Le point reste donc ouvert pour lui.
+
+**Mise à jour du 17 octobre.** faust-rs `main-dev` à `f69129c1` (« FIR scheduling
+of compute for the JIT backends (W2/W3) ») réordonne `compute` pour les backends
+wasm, Cranelift et interpréteur : chaque lecture d'un état descend près de son
+usage (huit instructions avant), et une valeur qui vient d'être écrite dans la
+structure est reprise au lieu d'être relue. Le code est vérifié par un contrôleur
+indépendant, et les sorties sont identiques au bit près. Reconstruit avec lui, le
+wasm de coopiano donne les mêmes sorties (-296 dB pour la voix, -272 dB pour les
+corps). Il coûte, sur deux passes alternées avec la construction de `ccca27eb`
+(qui comprend déjà `e2d758b9`, l'ordre des champs), machine chargée :
+
+| DSP | `ccca27eb` | `f69129c1` | C++ de faust-rs, `em++ -O3` |
+|---|---|---|---|
+| voix (une note tenue) | 5,4 à 5,7 % | 5,2 à 5,7 % | 5,7 % |
+| corps léger, pédale levée | 30 % | 18 à 19 % | 20 % |
+| corps léger, pédale enfoncée | 58 % | 39 à 41 % | — |
+| corps imagé, pédale levée | 50 % | 45 à 47 % | 49 % |
+| corps imagé, pédale enfoncée | 82 à 85 % | 67 à 68 % | — |
+
+Le corps léger rejoint Emscripten à son tour : le point est corrigé.
 
 ## 15. Une somme constante + commande + signal est groupée autrement que dans l'amont
 

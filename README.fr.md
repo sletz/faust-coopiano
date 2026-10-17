@@ -55,12 +55,16 @@ en français et en anglais.
 
 ```bash
 make web        # web/dsp : la voix et les deux corps compilés en wasm par faust-rs (~20 s)
+make -B web     # idem après un changement de faust-rs (les modules ne dépendent que de dsp/)
 make web-serve  # sert le dépôt ; ouvrir http://localhost:8000/web/
 make web-check  # le wasm contre faustprobe, et ce qu'il coûte (node)
-make web-pages  # publie web/ et web/dsp sur la branche gh-pages (GitHub Pages)
 ```
 
-La version publiée est à https://sletz.github.io/faust-coopiano/.
+La version publiée est à https://sletz.github.io/faust-coopiano/. C'est `web/`
+sur `main`, modules wasm compris : un push sur `main` qui modifie `web/` la publie
+(`.github/workflows/pages.yml`, qui ne compile rien). Pour publier de nouveaux
+modules : `make -B web` et `make web-check`, puis commiter `web/dsp` en nommant
+dans le message le commit faust-rs qui l'a construit, et pousser.
 
 - **Moteur.** La voix et les deux corps sont `dsp/coopiano.dsp` et
   `dsp/coopiano_light.dsp`, compilés par `faust-rs -lang wasm -double` (la voix est
@@ -106,20 +110,21 @@ La version publiée est à https://sletz.github.io/faust-coopiano/.
   onglets montrent alors ce qu'il a réglé, et un réglage changé ensuite le
   marque comme modifié. Les modes de la table d'harmonie restent ceux ajustés au
   grand piano C++.
-- **Coût.** Compilé par faust-rs `main-dev` à `51642a20`, le wasm tourne 1,4 à 3
+- **Coût.** Compilé par faust-rs `main-dev` à `f69129c1`, le wasm tourne 1,3 à 2
   fois plus lentement que la version native (`make web-check`, node sur un Apple
   M5, seconde en régime établi) :
   | DSP | pédale levée | pédale enfoncée | natif, pédale levée | Emscripten, pédale levée |
   |---|---|---|---|---|
-  | voix (une note tenue) | 6,0 % | | 3,1 % | 5,7 % |
-  | corps léger | 30 % | 62 à 65 % | 10 % | 20 % |
-  | corps imagé | 50 % | 92 à 96 % | 36 % | 49 % |
-  Le faust-rs précédent (`354e2080`) donnait 7,8 %, 41 % et 95 % : placer les
-  adresses constantes de la structure dans le décalage memarg des chargements et
-  des écritures a mis la voix et le corps imagé au niveau du même C++ compilé par
-  Emscripten (`em++ -O3`) ; le corps léger reste 1,5 fois plus lent (rapport,
-  point 14). La page démarre avec le corps léger et 8 voix, et affiche la charge
-  du thread audio.
+  | voix (une note tenue) | 5,2 à 5,7 % | | 3,1 % | 5,7 % |
+  | corps léger | 18 à 19 % | 39 à 41 % | 10 % | 20 % |
+  | corps imagé | 45 à 47 % | 67 à 68 % | 36 % | 49 % |
+  faust-rs `354e2080` donnait 7,8 %, 41 % et 95 %. Placer les adresses constantes
+  de la structure dans le décalage memarg des chargements et des écritures
+  (`51642a20`) a mis la voix et le corps imagé au niveau du même C++ compilé par
+  Emscripten (`em++ -O3`) ; rapprocher chaque lecture de son usage et reprendre
+  une valeur écrite au lieu de la relire (`f69129c1`) y a mis le corps léger
+  (rapport, point 14). La page démarre avec le corps léger et 8 voix, et affiche
+  la charge du thread audio.
 
 ## Ce que le modèle calcule au fil de l'eau
 
@@ -400,8 +405,8 @@ Toujours ouvert : `-vec` sur la voix ne termine pas (planification vectorielle e
 O(L⁴) sur 31 825 boucles), et le travail au taux de bloc sort d'un domaine
 `ondemand` si son entrée n'est pas tenue au taux audio, d'où `on_change`. Trouvé
 avec la version web : le code du backend wasm était 1,3 à 1,8 fois plus lent que
-celui d'Emscripten sur le même C++, un écart que `main-dev` `51642a20` a comblé
-sauf pour le corps léger (point 14), et une somme d'une constante,
+celui d'Emscripten sur le même C++, un écart que `main-dev` a comblé
+(`51642a20`, et `f69129c1` pour le corps léger ; point 14), et une somme d'une constante,
 d'une commande et d'un signal est groupée autrement qu'en C++ (point 15) : la
 partie lente n'est plus hissée et l'arrondi diffère. Ce second point gardait
 éveillées les touches étouffées de la résonance sympathique après la première
