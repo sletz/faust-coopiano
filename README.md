@@ -23,7 +23,7 @@ itself.
 | `scripts/` | table generation (soundboard fit) and the comparisons |
 | `tools/render.cpp` | native offline renderer of a score (`scores/demo.txt`) |
 | `web/` | the web version: page, keyboard, MIDI input, AudioWorklet host of the faust-rs wasm (`make web`, `make web-serve`) |
-| `pianoteq/` | coopiano (C++ and Faust) against Pianoteq 9 on the same scores: report (in French), measurements and figures (`make pianoteq`) |
+| `pianoteq/` | coopiano (C++ and Faust) against Pianoteq 9 on the same scores: report (English and French), measurements and figures (`make pianoteq`) |
 
 ## Use
 
@@ -299,7 +299,7 @@ much.
 
 ## Against Pianoteq
 
-[`pianoteq/README.md`](pianoteq/README.md) (in French) measures the C++ coopiano against
+[`pianoteq/README.md`](pianoteq/README.md) measures the C++ coopiano against
 Pianoteq 9 (trial, "NY Steinway D Classical" without reverb) on the same MIDI files:
 the two agree on the shape of inharmonicity and stretch tuning, mid-register decays and
 the stereo image; coopiano's treble at velocity 20 is 25-38 dB quieter (relative to each one's C4), its brightness stops growing

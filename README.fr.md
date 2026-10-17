@@ -23,7 +23,7 @@ C++ lui-même.
 | `scripts/` | génération des tables (ajustement de la table d'harmonie) et comparaisons |
 | `tools/render.cpp` | rendu natif hors ligne d'une partition (`scores/demo.txt`) |
 | `web/` | la version web : page, clavier, entrée MIDI, hôte AudioWorklet du wasm de faust-rs (`make web`, `make web-serve`) |
-| `pianoteq/` | coopiano (C++ et Faust) face à Pianoteq 9 sur les mêmes partitions : rapport, mesures et figures (`make pianoteq`) |
+| `pianoteq/` | coopiano (C++ et Faust) face à Pianoteq 9 sur les mêmes partitions : rapport (anglais et français), mesures et figures (`make pianoteq`) |
 
 ## Utilisation
 
@@ -317,7 +317,7 @@ moins.
 
 ## Face à Pianoteq
 
-[`pianoteq/README.md`](pianoteq/README.md) mesure le coopiano C++ face à Pianoteq 9 (version
+[`pianoteq/README.fr.md`](pianoteq/README.fr.md) mesure le coopiano C++ face à Pianoteq 9 (version
 d'essai, « NY Steinway D Classical » sans réverbération) sur les mêmes fichiers MIDI : les
 deux s'accordent sur la forme de l'inharmonicité et de l'accord étiré, les décroissances du
 médium et l'image stéréo ; l'aigu de coopiano à vélocité 20 est 25 à 38 dB plus faible (relativement au do 4 de chacun), sa brillance
