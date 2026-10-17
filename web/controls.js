@@ -518,6 +518,10 @@ export const TEXT = {
   loading: { en: "Loading…", fr: "Chargement…" },
   running: { en: "Running", fr: "En marche" },
   stopped: { en: "Stopped", fr: "Arrêté" },
+  blocked: {
+    en: "Audio held by the browser: press a key or Start audio",
+    fr: "Audio retenu par le navigateur : appuyez sur une touche ou sur Démarrer l'audio",
+  },
   panic: { en: "All notes off", fr: "Tout arrêter" },
   reset: { en: "Defaults", fr: "Valeurs par défaut" },
   resetAll: { en: "Reset all controls", fr: "Tout remettre par défaut" },

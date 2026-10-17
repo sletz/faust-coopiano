@@ -345,8 +345,34 @@ function buildControls() {
 
 // ---------------------------------------------------------------- audio
 
-// The audio context, the processor's node, and a flag while they are created.
-const audio = { ctx: null, node: null, compiled: null, starting: false };
+// The audio context, the processor's node, and a flag while they are created;
+// `pending` is the context while it is being set up, `stopped` that the user
+// stopped the audio (Stop audio), as opposed to the browser holding it.
+const audio = { ctx: null, node: null, compiled: null, starting: false, pending: null, stopped: false };
+
+/**
+ * Resumes the audio context unless the user stopped it. Safari (and Chrome under
+ * its autoplay policy) runs a context only once `resume` is called during a user
+ * gesture: every key press and the Start button call this.
+ */
+function wakeAudio() {
+  const ctx = audio.ctx || audio.pending;
+  if (ctx && ctx.state !== "running" && !audio.stopped) ctx.resume().catch(() => {});
+}
+
+/**
+ * Shows the state of the running context: the status line and the Start/Stop
+ * button.
+ */
+function showAudioState() {
+  const ctx = audio.ctx;
+  if (!ctx) return;
+  const running = ctx.state === "running";
+  if (running) setStatus(TEXT.running, ctx.sampleRate !== 44100 ? ` (${ctx.sampleRate} Hz)` : "");
+  else setStatus(audio.stopped ? TEXT.stopped : TEXT.blocked);
+  $("start").dataset.text = running ? "stop" : "start";
+  $("start").textContent = t(TEXT[$("start").dataset.text]);
+}
 
 /**
  * Fetches and compiles one DSP of DSP_DIR.
@@ -384,23 +410,29 @@ function setStatus(entry, extra = "") {
 async function startAudio() {
   if (audio.ctx) {
     if (audio.ctx.state === "running") {
+      audio.stopped = true;
       allNotesOff();
       await audio.ctx.suspend();
-      setStatus(TEXT.stopped);
-      $("start").dataset.text = "start";
     } else {
+      audio.stopped = false;
       await audio.ctx.resume();
-      setStatus(TEXT.running);
-      $("start").dataset.text = "stop";
     }
-    $("start").textContent = t(TEXT[$("start").dataset.text]);
+    showAudioState();
     return;
   }
-  if (audio.starting) return;
+  if (audio.starting) {
+    wakeAudio();
+    return;
+  }
   audio.starting = true;
   setStatus(TEXT.loading);
   try {
     const ctx = new AudioContext({ sampleRate: 44100, latencyHint: "interactive" });
+    // Safari runs a context only if `resume` is called during the user's gesture,
+    // which the loads below outlast: call it now, without waiting for it. A start
+    // from MIDI is no gesture; the next key press or Start resumes it (wakeAudio).
+    audio.pending = ctx;
+    ctx.resume().catch(() => {});
     await ctx.audioWorklet.addModule("coopiano-processor.js");
     const [voice, light, full] = await Promise.all(["voice", "body_light", "body"].map(compileDsp));
     // The compiled modules are structured-cloned into the audio thread, which
@@ -423,19 +455,18 @@ async function startAudio() {
     });
     node.port.onmessage = (e) => onStats(e.data);
     node.connect(ctx.destination);
-    await ctx.resume();
     audio.ctx = ctx;
     audio.node = node;
     $("panic").disabled = false;
-    $("start").dataset.text = "stop";
-    $("start").textContent = t(TEXT.stop);
-    setStatus(TEXT.running, ctx.sampleRate !== 44100 ? ` (${ctx.sampleRate} Hz)` : "");
+    ctx.onstatechange = showAudioState;
+    showAudioState();
     initMidi();
   } catch (error) {
     console.error(error);
     $("status").textContent = String(error.message || error);
   } finally {
     audio.starting = false;
+    audio.pending = null;
   }
 }
 
@@ -483,6 +514,7 @@ const keyElements = new Map();
 function noteOn(key, velocity, source) {
   if (key < FIRST_KEY || key > LAST_KEY) return;
   if (!audio.ctx && !audio.starting) startAudio();
+  else wakeAudio();
   let held = sources.get(key);
   if (!held) sources.set(key, (held = new Set()));
   held.add(source);
@@ -872,7 +904,7 @@ function applyLanguage() {
     if (entry) el.textContent = t(entry);
   }
   for (const b of document.querySelectorAll("[data-lang]")) b.setAttribute("aria-pressed", String(b.dataset.lang === lang));
-  if (audio.ctx) setStatus(audio.ctx.state === "running" ? TEXT.running : TEXT.stopped);
+  showAudioState();
   $("how").innerHTML = HOW[lang];
   $("keys-hint").textContent = KEYS_HINT[lang];
   buildControls();
