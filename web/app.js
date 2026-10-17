@@ -361,6 +361,15 @@ function wakeAudio() {
 }
 
 /**
+ * Shows an error of the audio thread in the status line, and in the console.
+ * @param {string} message
+ */
+function showError(message) {
+  console.error(message);
+  $("status").textContent = message;
+}
+
+/**
  * Shows the state of the running context: the status line and the Start/Stop
  * button.
  */
@@ -450,10 +459,16 @@ async function startAudio() {
       },
     });
     await new Promise((resolve, reject) => {
-      node.port.onmessage = (e) => (e.data.type === "ready" ? resolve() : null);
+      node.port.onmessage = (e) => {
+        if (e.data.type === "ready") resolve();
+        else if (e.data.type === "error") reject(new Error("processor: " + e.data.message));
+      };
       node.onprocessorerror = (e) => reject(new Error("processor error: " + (e.message || e)));
+      // A processor that never answers: say so, with the context's state.
+      setTimeout(() => reject(new Error(`no answer from the audio processor after 20 s (context ${ctx.state})`)), 20000);
     });
     node.port.onmessage = (e) => onStats(e.data);
+    node.onprocessorerror = (e) => showError("processor error: " + (e.message || e));
     node.connect(ctx.destination);
     audio.ctx = ctx;
     audio.node = node;
@@ -476,6 +491,11 @@ async function startAudio() {
  * @param {Object} m - a message of the processor
  */
 function onStats(m) {
+  if (m.type === "error") {
+    console.error(m.stack);
+    showError("processor: " + m.message);
+    return;
+  }
   if (m.type !== "stats") return;
   const load = Math.round(100 * m.load);
   $("cpu-bar").style.width = Math.min(100, load) + "%";

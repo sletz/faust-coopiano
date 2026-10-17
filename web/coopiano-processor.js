@@ -83,7 +83,21 @@ class CoopianoProcessor extends AudioWorkletProcessor {
    */
   constructor(options) {
     super();
-    const o = options.processorOptions;
+    try {
+      this.setUp(options.processorOptions);
+    } catch (error) {
+      // Reported to the page, which shows it: some browsers give
+      // `processorerror` no message.
+      this.port.postMessage({ type: "error", message: `${error.name}: ${error.message}`, stack: String(error.stack) });
+      throw error;
+    }
+  }
+
+  /**
+   * The constructor's work (see there).
+   * @param {Object} o - `options.processorOptions`
+   */
+  setUp(o) {
     // The render quantum of the Web Audio API.
     this.blockSize = 128;
     this.voiceCompiled = o.voice;
@@ -254,6 +268,23 @@ class CoopianoProcessor extends AudioWorkletProcessor {
    * @returns {boolean} true: the processor stays alive
    */
   process(inputs, outputs) {
+    try {
+      return this.render(outputs);
+    } catch (error) {
+      if (!this.failed) {
+        this.failed = true;
+        this.port.postMessage({ type: "error", message: `${error.name}: ${error.message}`, stack: String(error.stack) });
+      }
+      return true;
+    }
+  }
+
+  /**
+   * The work of `process` (see there).
+   * @param {Array<Array<Float32Array>>} outputs - one stereo output
+   * @returns {boolean} true
+   */
+  render(outputs) {
     const out = outputs[0];
     const n = out[0].length;
     const t0 = now();
