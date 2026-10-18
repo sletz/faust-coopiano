@@ -1498,7 +1498,11 @@ with { on = m < 56.0; };
 // each pair. Only the five slot outputs it reads enter the domain. (A faust-rs
 // older than `ccca27eb`, 2026-10-17, rejects `dsp/coopiano_hammer.dsp` here:
 // FRS-FIR-0001 "use of undeclared variable", point 16 of the faust-rs report.)
-_slot_mags = \(vr, vi, hr, hi, rd).(abs(rd) * sqrt(vr * vr + vi * vi), abs(rd) * sqrt(hr * hr + hi * hi));
+// An amplitude is exactly 0 at rest and at a strike's first sample, where the
+// slope of `sqrt` is infinite: `_safe_sqrt` keeps the forward-mode tangents of
+// the voice finite (faust-rs `fad`, tools/ad/README.md) at the price of 1e-150.
+_safe_sqrt(x) = sqrt(max(x, 1.0e-300));
+_slot_mags = \(vr, vi, hr, hi, rd).(abs(rd) * _safe_sqrt(vr * vr + vi * vi), abs(rd) * _safe_sqrt(hr * hr + hi * hi));
 _gain_route = route(2 * NS + _NPAIR, 5 * _NPAIR, par(q, 5 * _NPAIR, (src(q) + 1, q + 1)))
 with {
     // per pair: |a_k| and |a_j| vertical, then horizontal, then the constant
@@ -1511,7 +1515,7 @@ with {
     };
 };
 _bound_factor(r) = pow(1.0 + r4 * r4, -0.125) with { r2 = r * r; r4 = r2 * r2; };
-_pair_gains = \(avk, avj, ahk, ahj, kb).(_bound_factor(kb * sqrt(avk * avj)), _bound_factor(kb * sqrt(ahk * ahj)));
+_pair_gains = \(avk, avj, ahk, ahj, kb).(_bound_factor(kb * _safe_sqrt(avk * avj)), _bound_factor(kb * _safe_sqrt(ahk * ahj)));
 _phantom_gains = (par(k, NS, _slot_mags), si.bus(_NPAIR)) : _gain_route : par(pr, _NPAIR, _pair_gains);
 
 // The phantoms of one voice. Inputs: the slot outputs, the pair coefficients and

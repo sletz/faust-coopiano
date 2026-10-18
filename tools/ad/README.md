@@ -14,7 +14,7 @@ seed-1 draws; the bridge force of `cp.voice_drawn` (what
 
 | file | what |
 |---|---|
-| `ad.lib` | the note (key down from frame 0 for `hold` s), the seeds, the loss, and the sqrt workaround below |
+| `ad.lib` | the note (key down from frame 0 for `hold` s), the seeds and the loss |
 | `voice_fad.dsp` | bridge force and its three tangents (no loss) |
 | `params_fad.dsp` | the note parameters (`_voice_params_on`) and their tangents: the bisection that cleared them of the NaN |
 | `fd_check.py` | those tangents against central finite differences of `dsp/coopiano_note.dsp` |
@@ -29,14 +29,14 @@ squared difference of the log 10 ms energy envelopes of model and target.
 
 1. **The model needed one change to be differentiable.** The tangents were
    NaN from the first frame, with no note playing: `_slot_mags` and
-   `_pair_gains` take `sqrt` of a mode's squared amplitude, which is exactly 0
+   `_pair_gains` took `sqrt` of a mode's squared amplitude, which is exactly 0
    at rest and at the first sample of a strike, and the tangent of `sqrt` at 0
-   is `inf * 0`. The NaN is then held by the phantoms' `ondemand` domain and
-   reaches every output. `ad.lib` redefines the two helpers with
-   `sqrt(max(x, 1e-300))` through a library modification
-   (`library("coopiano.lib")[...]`), without touching `coopiano.lib`; the
-   output does not change (0 difference with `coopiano_note.dsp`). Adopting it
-   in `coopiano.lib` would make the voice differentiable as is.
+   is `inf * 0`. The NaN was then held by the phantoms' `ondemand` domain and
+   reached every output. The study first redefined the two helpers through a
+   library modification; `coopiano.lib` now takes `_safe_sqrt(x) =
+   sqrt(max(x, 1e-300))` there itself, and the renders are bit-identical
+   (`faustprobe --ref` at zero tolerance: three notes and the five-channel voice
+   output; `make check`, `make doctests`).
 2. **The tangents are right.** Against central differences (relative step
    1e-4), the relative error is 4e-9 to 2e-8 in every window (0-5 ms of the
    attack, 5-50 ms, 50-300 ms, 0.3-1 s, the release): finite differences'
@@ -70,8 +70,8 @@ plain renders per control and per step) are cheaper, and as accurate on this
 model. `fad` would pay off with many controls only if its cost per seed came
 down to about that of a plain render: the 6x measured here is worth a look in
 faust-rs (the per-seed work of the parameters' `ondemand` domains is the first
-suspect). Worth keeping from the study: the `sqrt` fix (finding 1), and the
-loss and grid set-up for a calibration against Pianoteq or a recording.
+suspect). Kept from the study: the `sqrt` fix (finding 1, now in `coopiano.lib`),
+and the loss and grid set-up for a calibration against Pianoteq or a recording.
 
 ## Reproducing
 
