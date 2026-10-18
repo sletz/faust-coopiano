@@ -1,80 +1,77 @@
-# Pourquoi le wasm de coopiano est plus lent que le natif
+# Why coopiano's wasm is slower than native
 
-Étude du 17 octobre 2026 : on mesure, cause par cause, l'écart de coût entre les
-modules wasm de la version web et le C++ natif. Le compilateur n'a pas été
-modifié pour cette étude.
+A study of 17 October 2026 that measures, cause by cause, the cost gap between
+the wasm modules of the web version and the native C++. The compiler was not
+changed for this study. French version: [README.fr.md](README.fr.md).
 
-| Élément | Version |
+| Component | Version |
 |---|---|
-| faust-rs | `main-dev` à `c6d9aece` |
+| faust-rs | `main-dev` at `c6d9aece` |
 | `coopiano.lib` | 0.2.4 (`e14d953`) |
 | C++ | Apple clang 21.0.0 |
 | node | 22.12.0 (V8 12.4) |
-| Chrome | 155.0.8059.85, et Canary 158.0.8110.0 |
+| Chrome | 155.0.8059.85, and Canary 158.0.8110.0 |
 | Machine | Apple M5, macOS 26.7.1 |
 
-## Résumé
+## Summary
 
-1. **L'écart dans Chrome.** On compare au C++ natif de même sémantique (IEEE
-   strict, sans FMA, sans vectorisation). Le wasm coûte 2,4 fois plus pour la
-   voix, 1,5 fois plus pour le corps imagé, 1,45 à 1,6 fois plus pour le corps
-   léger.
-2. **Ce ne sont pas les libertés du compilateur C++.** `-ffast-math`, les FMA
-   et la vectorisation automatique n'expliquent pas l'écart. Le natif privé de
-   tout cela n'est pas plus lent. Le corps imagé est même plus rapide sans
-   vectorisation : 26,6 % d'un cœur au lieu de 36,8 %.
-3. **Le wasm exécute environ deux fois plus d'instructions** par échantillon :
-   2,4 fois pour la voix, 1,8 fois pour le corps, 2,1 fois pour le corps léger.
-   Le rythme par cycle est comparable (IPC de 3 à 5,5). Le surplus vient du
-   code que V8 génère pour une fonction `compute` géante.
-   - **Déversements de registres.** Le code V8 fait 2,8 fois plus d'accès à la
-     pile que clang, dans un cadre de 37 Ko. Au-delà de 256 octets du pointeur
-     de cadre, chaque accès coûte une instruction de plus pour construire son
-     adresse.
-   - **Constantes flottantes.** V8 construit chacune en cinq instructions.
-   - **Rechargements de l'état.** V8 relit l'état DSP environ deux fois plus
-     souvent que clang.
-4. **Les fonctions mathématiques importées du JavaScript** pèsent sur la voix,
-   et presque pas sur les corps.
-   - `Math.pow` appelé depuis le wasm coûte 64 ns, contre 3,8 ns pour la libm.
-   - La voix en fait 7 par échantillon, dans le contact du marteau.
-   - Remplacer `Math.pow` par `exp(y·log x)` fait passer la voix de 6,76 % à
-     6,02 % sous node.
-5. **`fastmath.lib` ne paie pas ici.** Avec `fa.fpow`, `fa.fexp` et `fa.fsin`
-   aux endroits calculés à chaque échantillon, la voix devient plus lente
-   partout : 10 à 12 % au lieu de 7 à 7,7 % dans Chrome, 4,5 % au lieu de 2,9 %
-   en natif. C'est du code ajouté à une fonction déjà géante.
-6. **Les versions de V8.** Chrome 155 et Canary 158 donnent les mêmes coûts sur
-   le fil principal. Node 22 est nettement plus lent sur le corps léger : 21 %
-   contre 13 %.
-7. **Découper la boucle n'a pas pu être mesuré.** `-vec` ne termine pas sur le
-   corps léger : 900 s, 18,9 Go résidents, 155 Go d'empreinte mémoire au pic.
+1. **The gap in Chrome.** Against native C++ with the same semantics (strict
+   IEEE, no FMA, no vectorization), the wasm costs 2.4 times as much for the
+   voice, 1.5 times for the imaged body, and 1.45 to 1.6 times for the light
+   body.
+2. **It is not the C++ compiler's liberties.** `-ffast-math`, FMA and
+   auto-vectorization do not explain the gap: native code without any of them
+   is not slower. The imaged body is even faster without vectorization: 26.6 %
+   of a core instead of 36.8 %.
+3. **The wasm executes about twice as many instructions** per sample: 2.4 times
+   for the voice, 1.8 times for the body, 2.1 times for the light body. It
+   executes them at a similar rate per cycle (IPC 3 to 5.5). The extra
+   instructions come from the code V8 generates for a giant `compute` function.
+   - **Register spills.** V8's code makes 2.8 times as many stack accesses as
+     clang's, in a 37 KB frame. Beyond 256 bytes from the frame pointer, each
+     access costs one more instruction to build its address.
+   - **Floating-point constants.** V8 builds each one in five instructions.
+   - **State reloads.** V8 reloads the DSP state about twice as often as clang.
+4. **The math functions imported from JavaScript** weigh on the voice, and
+   hardly on the bodies.
+   - `Math.pow` called from wasm costs 64 ns, against 3.8 ns for the libm.
+   - The voice makes 7 such calls per sample, in the hammer contact.
+   - Replacing `Math.pow` with `exp(y·log x)` takes the voice from 6.76 % to
+     6.02 % under node.
+5. **`fastmath.lib` does not pay off here.** With `fa.fpow`, `fa.fexp` and
+   `fa.fsin` at the places computed every sample, the voice gets slower
+   everywhere: 10 to 12 % instead of 7 to 7.7 % in Chrome, 4.5 % instead of
+   2.9 % natively. That is code added to an already giant function.
+6. **V8 versions.** Chrome 155 and Canary 158 give the same costs on the main
+   thread. Node 22 is much slower on the light body: 21 % against 13 %.
+7. **Splitting the loop could not be measured.** `-vec` does not finish on the
+   light body: 900 s, 18.9 GB resident, 155 GB of peak memory footprint.
 
-## Méthode
+## Method
 
-La charge est celle de `scripts/web_check.mjs` :
+The workload is the one of `scripts/web_check.mjs`:
 
-- blocs de 128 échantillons à 44,1 kHz ;
-- la voix tient un do 4 (`freq`, `gate` = 1) ;
-- un corps reçoit 1e-3 sur chaque entrée, pédale levée ou enfoncée.
+- 128-sample blocks at 44.1 kHz;
+- the voice holds a C4 (`freq`, `gate` = 1);
+- a body gets 1e-3 on every input, pedal up or down.
 
-On mesure une seconde après deux secondes de chauffe. Le chiffre retenu est le
-meilleur de cinq essais, les variantes étant alternées à chaque tour. Les mêmes
-DSP sont compilés par faust-rs, en C++ et en wasm, à partir des mêmes sources :
-`dsp/coopiano.dsp` pour la voix, et `-pn effect` de `dsp/coopiano.dsp` et
-`dsp/coopiano_light.dsp` pour les corps.
+One second is measured after two seconds of warm-up. Each figure is the best
+of five runs, with the variants alternated in every round. The same DSPs are
+compiled by faust-rs, to C++ and to wasm, from the same sources:
+`dsp/coopiano.dsp` for the voice, and `-pn effect` of `dsp/coopiano.dsp` and of
+`dsp/coopiano_light.dsp` for the bodies.
 
-Fichiers de ce répertoire :
+Files in this directory:
 
-| Fichier | Rôle |
+| File | Role |
 |---|---|
-| `nbench.cpp` | banc natif (le prélude de `tools/render.cpp`) ; inclut `voice.cpp`, `body.cpp` et `light.cpp` |
-| `wbench.mjs` | banc wasm sous node, même charge. `--count` compte les appels mathématiques par échantillon. `--pow-exp-log` remplace `Math.pow` par `exp(y·log x)` |
-| `webbench.html` | même mesure dans Chrome, sur le fil principal, pour les jeux de modules de `build/hist/<nom>/` |
-| `calls.wat`, `calls.mjs`, `calls.c` | coût d'un appel mathématique depuis le wasm et en natif |
-| `accuracy.mjs` | écart maximal entre deux jeux de modules, sur les rendus de `web_check` |
+| `nbench.cpp` | native bench (the prelude of `tools/render.cpp`); includes `voice.cpp`, `body.cpp` and `light.cpp` |
+| `wbench.mjs` | wasm bench under node, same workload. `--count` counts the math calls per sample. `--pow-exp-log` replaces `Math.pow` with `exp(y·log x)` |
+| `webbench.html` | the same measurement in Chrome, on the main thread, for the module sets of `build/hist/<name>/` |
+| `calls.wat`, `calls.mjs`, `calls.c` | cost of one math call from wasm and natively |
+| `accuracy.mjs` | largest difference between two module sets, on `web_check`'s renders |
 
-Reproduire :
+To reproduce:
 
 ```bash
 FR=../faust-rs/target/release/faust-rs; mkdir -p build/study
@@ -86,197 +83,193 @@ build/study/nbench light_up 1
 node wasm-vs-native/wbench.mjs light_up 1 web/dsp
 ```
 
-`nbench` et `wbench.mjs` acceptent les modes `voice`, `body_up`, `body_down`,
-`light_up` et `light_down`.
+`nbench` and `wbench.mjs` accept the modes `voice`, `body_up`, `body_down`,
+`light_up` and `light_down`.
 
-Dans Chrome, `webbench.html` lit chaque jeu de modules dans
-`build/hist/<nom>/`. Par exemple, pour les modules d'un commit :
+In Chrome, `webbench.html` reads each module set from `build/hist/<name>/`.
+For example, for the modules of one commit:
 
 ```bash
 c=e14d953; mkdir -p build/hist/$c
 for f in voice body body_light; do for e in wasm json; do git show $c:web/dsp/$f.$e > build/hist/$c/$f.$e; done; done
 ```
 
-Il demande aussi un serveur (`python3 scripts/web_serve.py 8765`), puis
+It also needs a server (`python3 scripts/web_serve.py 8765`), then
 `http://localhost:8765/wasm-vs-native/webbench.html?sets=e14d953&rounds=4`.
-En headless, il faut `--enable-features=WebAssemblyUnlimitedSyncCompilation` :
-le fil principal refuse sinon d'instancier synchroniquement un module de plus
-de 8 Mo.
+Headless Chrome needs `--enable-features=WebAssemblyUnlimitedSyncCompilation`:
+otherwise the main thread refuses to instantiate a module over 8 MB
+synchronously.
 
-## 1. Le natif sans ses libertés
+## 1. Native code without its liberties
 
-Coût en % d'un cœur, meilleur de cinq :
+Cost in % of a core, best of five:
 
-| Compilation | voix | corps levée | corps enfoncée | léger levée | léger enfoncée |
+| Build | voice | body up | body down | light up | light down |
 |---|---|---|---|---|---|
-| `-O3 -ffast-math -march=native` (celle de coopiano) | 2,85 | 36,79 | 47,03 | 9,28 | 17,11 |
-| même, `-ffp-contract=off` (sans FMA) | 2,96 | 31,04 | 43,23 | 8,96 | 21,05 |
-| `-O3 -march=native` (IEEE strict, FMA permis) | 2,78 | 35,37 | 45,40 | 7,64 | 14,11 |
-| même, `-ffp-contract=off` | 2,97 | 31,33 | 42,66 | 8,91 | 18,80 |
-| `-ffast-math`, sans vectorisation | 2,80 | 25,60 | 35,56 | 8,06 | 14,91 |
-| **strict, sans FMA, sans vectorisation** (le plus proche du wasm) | 2,98 | 26,60 | 37,76 | 8,92 | 18,66 |
-| wasm, node 22 | 7,04 | 45,17 | 66,15 | 21,91 | 39,52 |
-| wasm, Chrome 155, fil principal | 7,0–7,2 | 39,9–41,1 | 55,9–58,0 | 12,8–13,1 | 30,0–30,9 |
-| wasm, Canary 158, fil principal | 7,1–7,7 | 40,1–40,6 | 56,1–57,1 | 13,0–13,3 | 30,1–30,3 |
+| `-O3 -ffast-math -march=native` (coopiano's) | 2.85 | 36.79 | 47.03 | 9.28 | 17.11 |
+| same, `-ffp-contract=off` (no FMA) | 2.96 | 31.04 | 43.23 | 8.96 | 21.05 |
+| `-O3 -march=native` (strict IEEE, FMA allowed) | 2.78 | 35.37 | 45.40 | 7.64 | 14.11 |
+| same, `-ffp-contract=off` | 2.97 | 31.33 | 42.66 | 8.91 | 18.80 |
+| `-ffast-math`, no vectorization | 2.80 | 25.60 | 35.56 | 8.06 | 14.91 |
+| **strict, no FMA, no vectorization** (closest to wasm) | 2.98 | 26.60 | 37.76 | 8.92 | 18.66 |
+| wasm, node 22 | 7.04 | 45.17 | 66.15 | 21.91 | 39.52 |
+| wasm, Chrome 155, main thread | 7.0–7.2 | 39.9–41.1 | 55.9–58.0 | 12.8–13.1 | 30.0–30.9 |
+| wasm, Canary 158, main thread | 7.1–7.7 | 40.1–40.6 | 56.1–57.1 | 13.0–13.3 | 30.1–30.3 |
 
-- **`-ffast-math` ne gagne rien.** La compilation stricte est aussi rapide, et
-  même plus rapide sur le corps léger (7,64 % contre 9,28 %).
-- **Les FMA vont dans les deux sens.** Les retirer fait gagner sur les corps
-  pédale levée (31,0 % contre 36,8 %) et perdre sur le corps léger pédale
-  enfoncée (21,1 % contre 17,1 %).
-- **La vectorisation automatique coûte sur le corps imagé** : 36,8 % avec,
-  25,6 % sans.
+- **`-ffast-math` gains nothing.** The strict build is as fast, and even faster
+  on the light body (7.64 % against 9.28 %).
+- **FMA cuts both ways.** Removing it gains on the bodies with the pedal up
+  (31.0 % against 36.8 %) and loses on the light body with the pedal down
+  (21.1 % against 17.1 %).
+- **Auto-vectorization costs on the imaged body**: 36.8 % with it, 25.6 %
+  without.
 
-Le wasm n'est donc pas plus lent parce qu'il n'a ni FMA scalaire, ni
-réassociation, ni vectorisation automatique.
+So the wasm is not slower because it lacks scalar FMA, reassociation or
+auto-vectorization.
 
-**Remarque pour coopiano.** Sur cette machine, `-fno-vectorize
--fno-slp-vectorize` rend le rendu natif du corps imagé 30 % moins cher. Les
-options `NATIVE` du `Makefile` mériteraient d'être revues.
+**Note for coopiano.** On this machine, `-fno-vectorize -fno-slp-vectorize`
+makes the native render of the imaged body 30 % cheaper. The `NATIVE` options
+of the `Makefile` deserve a second look.
 
-## 2. Instructions et cycles par échantillon
+## 2. Instructions and cycles per sample
 
-Les compteurs de `/usr/bin/time -l` sont pris entre une mesure d'une seconde et
-une de cinq ; la chauffe et la compilation s'annulent dans la différence.
-Meilleur de deux.
+The counters of `/usr/bin/time -l` are taken between a one-second and a
+five-second measurement; warm-up and compilation cancel out in the difference.
+Best of two.
 
-| DSP | natif le plus proche du wasm | natif `-ffast-math` | wasm node 22 |
+| DSP | native closest to wasm | native `-ffast-math` | wasm node 22 |
 |---|---|---|---|
-| voix | 14 164 instr., 2 829 cycles (IPC 5,0) | 13 921 / 2 695 (5,2) | 34 655 / 6 241 (5,6) |
-| corps levée | 69 383 / 25 167 (2,8) | 97 625 / 34 859 (2,8) | 124 841 / 41 950 (3,0) |
-| léger levée | 31 749 / 8 421 (3,8) | 29 586 / 8 881 (3,3) | 66 152 / 20 267 (3,3) |
+| voice | 14,164 instr., 2,829 cycles (IPC 5.0) | 13,921 / 2,695 (5.2) | 34,655 / 6,241 (5.6) |
+| body up | 69,383 / 25,167 (2.8) | 97,625 / 34,859 (2.8) | 124,841 / 41,950 (3.0) |
+| light up | 31,749 / 8,421 (3.8) | 29,586 / 8,881 (3.3) | 66,152 / 20,267 (3.3) |
 
-Le wasm exécute 1,8 à 2,4 fois plus d'instructions. Il ne les exécute pas plus
-lentement. C'est donc la quantité de code qui compte.
+The wasm executes 1.8 to 2.4 times as many instructions, and does not execute
+them more slowly. What counts is the amount of code.
 
-## 3. Ce que contient le code de V8
+## 3. What V8's code contains
 
-Code machine de `compute` du corps léger, en entier, gardes comprises : V8 avec
-`node --print-wasm-code`, clang avec `objdump` sur la compilation stricte sans
-FMA ni vectorisation.
+Machine code of the light body's `compute`, whole, guards included: V8 through
+`node --print-wasm-code`, clang through `objdump` on the strict build without
+FMA or vectorization.
 
-| Catégorie | V8 TurboFan | clang |
+| Category | V8 TurboFan | clang |
 |---|---|---|
-| instructions | 321 878 | 144 454 |
-| déplacements et constantes (`movz`, `movk`, `movn`, `fmov`) | 118 915 | 19 059 |
-| chargements pile + mémoire | 49 962 + 46 397 | 17 974 + 24 129 |
-| rangements pile + mémoire | 25 568 + 17 458 | 9 334 + 16 754 |
-| arithmétique flottante | 52 060 | 46 791 |
+| instructions | 321,878 | 144,454 |
+| moves and constants (`movz`, `movk`, `movn`, `fmov`) | 118,915 | 19,059 |
+| loads, stack + memory | 49,962 + 46,397 | 17,974 + 24,129 |
+| stores, stack + memory | 25,568 + 17,458 | 9,334 + 16,754 |
+| floating-point arithmetic | 52,060 | 46,791 |
 
-- **L'arithmétique est la même.** Le surplus est ailleurs.
-- **Déversements.** La pile reçoit 75 530 accès chez V8 contre 27 308 chez
-  clang, dans un cadre de 37 Ko (`sub sp, sp, #0x9060`).
-- **Immédiats d'adresse.** 69 % des `movz`, `movk` et `movn` de V8 construisent
-  le décalage d'un chargement ou d'un rangement, typiquement
-  `movn x16, #0x35f; ldr d7, [fp, x16]` : une case de déversement à plus de
-  256 octets du pointeur de cadre.
-- **Constantes flottantes.** 18 % de ces immédiats construisent une constante
-  : quatre `movz`/`movk` et un `fmov` par double. clang charge la même constante
-  en une seule instruction.
-- **État DSP.** V8 recharge la mémoire linéaire environ deux fois plus. Les
-  rangements de l'état sont en revanche équivalents (17 458 contre 16 754).
+- **The arithmetic is the same.** The extra instructions are elsewhere.
+- **Spills.** The stack gets 75,530 accesses in V8's code against 27,308 in
+  clang's, in a 37 KB frame (`sub sp, sp, #0x9060`).
+- **Address immediates.** 69 % of V8's `movz`, `movk` and `movn` build the
+  offset of a load or a store, typically `movn x16, #0x35f; ldr d7, [fp, x16]`:
+  a spill slot more than 256 bytes from the frame pointer.
+- **Floating-point constants.** 18 % of these immediates build a constant: four
+  `movz`/`movk` and one `fmov` per double. clang loads the same constant in a
+  single instruction.
+- **DSP state.** V8 reloads linear memory about twice as much. The stores to
+  the state, on the other hand, are equivalent (17,458 against 16,754).
 
-Au fil d'un échantillon, le wasm du corps léger fait 7 967 chargements et 3 157
-rangements pour 12 760 opérations flottantes, hors gardes, d'après `wasm-dis`.
-La voix en fait 3 133, 912 et 5 180. La boucle par échantillon du corps léger
-compte 6 450 instructions C++ : le répartiteur de registres de V8 ne la tient
-pas, celui de clang beaucoup mieux.
+Over one sample, the light body's wasm makes 7,967 loads and 3,157 stores for
+12,760 floating-point operations outside the guards, according to `wasm-dis`.
+The voice makes 3,133, 912 and 5,180. The light body's per-sample loop holds
+6,450 C++ statements: V8's register allocator cannot hold it, and clang's does
+much better.
 
-## 4. Les fonctions mathématiques
+## 4. The math functions
 
-Appels par échantillon, comptés à l'exécution (`wbench.mjs --count`) :
+Calls per sample, counted at run time (`wbench.mjs --count`):
 
-| DSP | appels |
+| DSP | calls |
 |---|---|
-| voix | `exp` 7,25 ; `pow` 7,16 ; `sin` 1,13 ; `cos` 0,13 ; `log` 0,05 ; `tanh` 0,01 |
-| corps, corps léger | `tanh` 2,00 (le limiteur de sortie ; `select2` calcule ses deux branches) ; `pow` 0,06 ; `exp` 0,01 |
+| voice | `exp` 7.25; `pow` 7.16; `sin` 1.13; `cos` 0.13; `log` 0.05; `tanh` 0.01 |
+| body, light body | `tanh` 2.00 (the output limiter; `select2` computes both of its branches); `pow` 0.06; `exp` 0.01 |
 
-Pour la voix, ces appels viennent du solveur du feutre du marteau
-(`felt_solve`, et la force `F`) pour les 7 `pow`. Les bruits d'action (les
-enveloppes `exp(-t/τ)` et `sin(π·x)` du knock) fournissent les `exp` et `sin`.
+In the voice, the 7 `pow` come from the hammer's felt solver (`felt_solve`,
+and the force `F`). The action noises (the `exp(-t/τ)` envelopes and the
+knock's `sin(π·x)`) supply the `exp` and the `sin`.
 
-Coût d'un appel, arguments indépendants, net de la boucle (`calls.*`) :
+Cost of one call, with independent arguments, net of the loop (`calls.*`):
 
-| Fonction | wasm → `Math.*` (node) | libm, `-O3` strict | libm, `-O3 -ffast-math` |
+| Function | wasm → `Math.*` (node) | libm, `-O3` strict | libm, `-O3 -ffast-math` |
 |---|---|---|---|
-| `exp` | 2,6 ns | 0,9 ns | 1,3 ns |
-| `sin` | 3,6 ns | 1,0 ns | 1,4 ns |
-| `tanh` | 10,8 ns | 1,9 ns | 2,4 ns |
-| `pow` | **63,9 ns** | 3,8 ns | 0,03 ns (clang réécrit `pow(a, 2.5)` en produits et racine) |
+| `exp` | 2.6 ns | 0.9 ns | 1.3 ns |
+| `sin` | 3.6 ns | 1.0 ns | 1.4 ns |
+| `tanh` | 10.8 ns | 1.9 ns | 2.4 ns |
+| `pow` | **63.9 ns** | 3.8 ns | 0.03 ns (clang rewrites `pow(a, 2.5)` into products and a square root) |
 
-- **Estimation pour la voix.** Les appels coûtent environ 450 ns de plus par
-  échantillon, dont 430 pour `pow`, soit 2 % d'un cœur. C'est la moitié de son
-  écart de 3,8 points (6,76 % sous node contre 2,98 % en natif).
-- **Mesure directe sur la voix.** Avec `Math.pow` remplacé par `exp(y·log x)`
-  (deux appels moins chers, même code Faust), la voix passe de 6,76 % à 6,02 %.
-  `pow` coûte donc au moins 0,7 point en situation.
-- **Les corps.** Les deux `tanh` coûtent 0,08 % d'un cœur : négligeable.
+- **Estimate for the voice.** The calls cost about 450 ns more per sample, 430
+  of them for `pow`: 2 % of a core. That is half of its 3.8-point gap (6.76 %
+  under node against 2.98 % natively).
+- **Direct measurement on the voice.** With `Math.pow` replaced by
+  `exp(y·log x)` (two cheaper calls, same Faust code), the voice goes from
+  6.76 % to 6.02 %. So `pow` costs at least 0.7 point in place.
+- **The bodies.** The two `tanh` cost 0.08 % of a core: negligible.
 
-**La variante `fastmath.lib`.** On remplace les seuls appels faits à chaque
-échantillon par leurs versions Faust :
+**The `fastmath.lib` variant.** Only the calls made every sample are replaced
+by their Faust versions:
 
-- dans le marteau, les 7 `pow` par `fa.fpow`, dont la base est toujours
-  positive ;
-- dans les bruits, 7 `exp` par `fa.fexp` et 1 `sin` par `fa.fsin` ;
-- dans le limiteur, `tanh` par `fa.ftanh`.
+- in the hammer, the 7 `pow` by `fa.fpow`, whose base is always positive;
+- in the noises, 7 `exp` by `fa.fexp` and 1 `sin` by `fa.fsin`;
+- in the limiter, `tanh` by `fa.ftanh`.
 
-La voix ne diffère que de −288 dB du pic, et les corps sont identiques au bit
-près. Son coût :
+The voice differs by only −288 dB of the peak, and the bodies are
+bit-identical. Its cost:
 
-| Voix | 0.2.4 | avec `fa.*` |
+| Voice | 0.2.4 | with `fa.*` |
 |---|---|---|
-| wasm, Chrome 155 | 7,0–7,2 | 10,0–10,2 |
-| wasm, Canary 158 | 7,1–7,7 | 10,2–11,9 |
-| wasm, node 22 | 6,75 | 8,68 |
-| natif strict sans FMA ni vectorisation | 2,90 | 4,47 |
-| natif `-ffast-math` | 2,75 | 3,48 |
+| wasm, Chrome 155 | 7.0–7.2 | 10.0–10.2 |
+| wasm, Canary 158 | 7.1–7.7 | 10.2–11.9 |
+| wasm, node 22 | 6.75 | 8.68 |
+| native strict, no FMA or vectorization | 2.90 | 4.47 |
+| native `-ffast-math` | 2.75 | 3.48 |
 
-Les corps ne bougent pas : léger 21,1 → 20,5 % et imagé 43,5 → 43,7 % sous node.
+The bodies do not move: light 21.1 → 20.5 % and imaged 43.5 → 43.7 % under node.
 
-`fa.fpow` passe par `flog2`, une échelle de comparaisons, et par `fexp2`, une
-table et un polynôme. Recopié sept fois dans une fonction déjà au-delà de ce
-que le répartiteur de registres tient, ce code coûte plus que les appels qu'il
-remplace. `fastmath.lib` reste utile dans une petite boucle, pas ici.
+`fa.fpow` goes through `flog2`, a ladder of comparisons, and through `fexp2`, a
+table and a polynomial. Copied seven times into a function already beyond what
+the register allocator can hold, this code costs more than the calls it
+replaces. `fastmath.lib` remains useful in a small loop, not here.
 
-## 5. Découper la boucle
+## 5. Splitting the loop
 
-Si les déversements sont la cause principale, une boucle plus courte devrait
-coûter moins cher. C'est ce que fait le mode vectoriel de faust-rs : plusieurs
-boucles sur le bloc, chacune avec moins de valeurs vivantes. Mais
-`-vec -vs 32` sur le corps léger ne termine pas. Au bout du délai de 900 s, il
-occupe 18,9 Go résidents et 155 Go d'empreinte au pic, la machine échangeant
-sur le disque. Le point 12 du rapport (`-vec` en O(L⁴)) vaut donc aussi pour
-les corps, et l'hypothèse reste à mesurer.
+If spills are the main cause, a shorter loop should cost less. That is what
+faust-rs's vector mode does: several loops over the block, each with fewer live
+values. But `-vec -vs 32` on the light body does not finish. At the 900 s
+time limit, it occupies 18.9 GB resident and 155 GB of peak footprint, with the
+machine swapping to disk. Point 12 of the report (`-vec` in O(L⁴)) therefore
+applies to the bodies too, and the hypothesis remains to be measured.
 
-## Pistes pour faust-rs, par gain attendu
+## Leads for faust-rs, by expected gain
 
-1. **Une boucle par échantillon plus petite pour V8.** C'est le plus gros gain
-   possible : l'essentiel du surplus d'instructions vient des déversements et
-   de l'adressage de la pile. Trois moyens :
-   - un `-vec` qui termine (point 12 d'abord) ;
-   - une fission de la boucle propre au wasm ;
-   - des sous-fonctions appelées par la boucle.
+1. **A smaller per-sample loop for V8.** This is the largest possible gain:
+   most of the extra instructions come from spills and stack addressing. Three
+   ways:
+   - a `-vec` that finishes (point 12 first);
+   - a loop fission specific to wasm;
+   - sub-functions called from the loop.
 
-   Gain non mesuré ; la borne est un facteur proche de 2 sur les instructions
-   des corps.
-2. **Ne plus appeler `Math.pow` depuis le wasm.** C'est 0,7 à 2 points sur la
-   voix, soit 10 à 30 % de son coût. Deux moyens :
-   - un `pow` compilé dans le module (une libm wasm, à la précision de la
-     libm) ;
-   - à défaut, un `pow` JavaScript plus rapide que celui de V8, à condition
-     que sa précision reste celle de la libm.
-3. **Les constantes flottantes.** V8 en construit chacune en cinq instructions,
-   soit 18 % de ses immédiats sur le corps léger. Les charger depuis la mémoire
-   coûterait une instruction, plus son adresse. À mesurer.
-4. **Ne pas attendre de gain des FMA wasm (relaxed SIMD) ni du SIMD sur ces
-   DSP.** En natif, ni les FMA ni la vectorisation ne les accélèrent.
-5. **Mesurer dans Chrome, pas seulement sous node.** `make web-check` tourne
-   sous node 22, dont le V8 est plus ancien : il surestime le corps léger de
-   1,6 fois par rapport à Chrome.
+   Gain not measured; the bound is a factor close to 2 on the bodies'
+   instructions.
+2. **Stop calling `Math.pow` from wasm.** That is 0.7 to 2 points on the voice,
+   10 to 30 % of its cost. Two ways:
+   - a `pow` compiled into the module (a wasm libm, with libm accuracy);
+   - failing that, a JavaScript `pow` faster than V8's, provided its accuracy
+     stays that of the libm.
+3. **Floating-point constants.** V8 builds each one in five instructions, 18 %
+   of its immediates on the light body. Loading them from memory would cost one
+   instruction, plus its address. To be measured.
+4. **Expect no gain from wasm FMA (relaxed SIMD) or from SIMD on these DSPs.**
+   Natively, neither FMA nor vectorization speeds them up.
+5. **Measure in Chrome, not only under node.** `make web-check` runs under
+   node 22, whose V8 is older: it overstates the light body by 1.6 times
+   compared with Chrome.
 
-## Sans rapport avec l'écart wasm/natif
+## Unrelated to the wasm/native gap
 
-Chrome Canary 158.0.8110.0 sature le fil AudioWorklet (99 à 100 % d'un cœur
-pour quelques notes), là où Chrome 155 et Canary lancé avec
-`--js-flags=--no-liftoff` restent vers 76 à 79 %. Sur le fil principal, les
-deux versions calculent pourtant au même coût. C'est une régression de Canary.
+Chrome Canary 158.0.8110.0 saturates the AudioWorklet thread (99 to 100 % of a
+core for a few notes), where Chrome 155, and Canary launched with
+`--js-flags=--no-liftoff`, stay around 76 to 79 %. On the main thread, both
+versions compute at the same cost. It is a Canary regression.
