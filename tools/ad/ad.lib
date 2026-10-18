@@ -1,0 +1,39 @@
+// Shared definitions of the fad feasibility study (tools/ad/README.md).
+import("stdfaust.lib");
+
+// sqrt(x) has an infinite slope at 0, so its tangent is 0 * inf = NaN where a
+// mode's amplitude is exactly 0 (at rest, first sample of a strike): the two
+// amplitude helpers take sqrt(max(x, 1e-300)) here (a 1e-150 change of value).
+// The definitions of a modification are evaluated in this file's scope.
+safe_sqrt(x) = sqrt(max(x, 1.0e-300));
+bound_factor = library("coopiano.lib")._bound_factor;
+cp = library("coopiano.lib")[
+    _slot_mags = \(vr, vi, hr, hi, rd).(abs(rd) * safe_sqrt(vr * vr + vi * vi),
+                                       abs(rd) * safe_sqrt(hr * hr + hi * hi));
+    _pair_gains = \(avk, avj, ahk, ahj, kb).(bound_factor(kb * safe_sqrt(avk * avj)),
+                                             bound_factor(kb * safe_sqrt(ahk * ahj)));
+];
+
+// One note: the key is down from frame 0 for `hold` seconds (no button, so
+// that every training block, reset, plays the same note).
+key = hslider("key", 40, 21, 108, 1);
+velocity = hslider("velocity", 1, 0.02, 1, 0.001);
+hold = hslider("hold", 1, 0, 10, 0.001);
+n = (+(1) ~ _) - 1;
+gate = n < hold * ma.SR;
+force = cp.voice_drawn(key, velocity, gate,
+                       hslider("draw0", 0, -1, 1, 0.001),
+                       hslider("draw1", 0, -1, 1, 0.001),
+                       hslider("draw2", 0, -1, 1, 0.001)) : !, _;
+
+// The controls the study fits.
+seeds = (cp._h_stiffness, cp._h_width, cp._s_decay);
+
+// Per-sample loss: squared differences of the log energy envelopes (10 ms) of
+// seven octave bands, 60 Hz to 7.7 kHz, between `y` and the target `t`.
+EDGES = (60, 120, 240, 480, 960, 1920, 3840, 7680);
+NB = 7;
+env(lo, hi, x) = x : fi.bandpass(1, lo, hi) : (_ <: *) : si.smooth(ba.tau2pole(0.01));
+band_err(b, y, t) = log(env(lo, hi, y) + 1.0e-3) - log(env(lo, hi, t) + 1.0e-3)
+with { lo = ba.take(b + 1, EDGES); hi = ba.take(b + 2, EDGES); };
+loss(y, t) = sum(b, NB, band_err(b, y, t) * band_err(b, y, t));
