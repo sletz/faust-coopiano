@@ -2,7 +2,8 @@
 
 A study of 17 October 2026 that measures, cause by cause, the cost gap between
 the wasm modules of the web version and the native C++. The compiler was not
-changed for this study. French version: [README.fr.md](README.fr.md).
+changed for this study. Firefox was added on 19 October 2026 (section 6).
+French version: [README.fr.md](README.fr.md).
 
 | Component | Version |
 |---|---|
@@ -11,6 +12,7 @@ changed for this study. French version: [README.fr.md](README.fr.md).
 | C++ | Apple clang 21.0.0 |
 | node | 22.12.0 (V8 12.4) |
 | Chrome | 155.0.8059.85, and Canary 158.0.8110.0 |
+| Firefox | 158.0, and Nightly 160.0a1 |
 | Machine | Apple M5, macOS 26.7.1 |
 
 ## Summary
@@ -46,6 +48,12 @@ changed for this study. French version: [README.fr.md](README.fr.md).
    thread. Node 22 is much slower on the light body: 21 % against 13 %.
 7. **Splitting the loop could not be measured.** `-vec` does not finish on the
    light body: 900 s, 18.9 GB resident, 155 GB of peak memory footprint.
+8. **Firefox does not tier these modules up.** By default, Firefox 158 and
+   Nightly 160 run them with their baseline code, even after 30 s: the imaged
+   body costs 74 % of a core with the pedal up and 125 to 134 % with it down,
+   which is not real time. With Ion forced, Firefox is faster than Chrome on
+   the voice (4.1 % against 7.0 %; `Math.pow` costs 5 ns there, against 21 ns
+   in Chrome) and 1.1 to 1.4 times slower on the bodies.
 
 ## Method
 
@@ -67,8 +75,9 @@ Files in this directory:
 |---|---|
 | `nbench.cpp` | native bench (the prelude of `tools/render.cpp`); includes `voice.cpp`, `body.cpp` and `light.cpp` |
 | `wbench.mjs` | wasm bench under node, same workload. `--count` counts the math calls per sample. `--pow-exp-log` replaces `Math.pow` with `exp(y·log x)` |
-| `webbench.html` | the same measurement in Chrome, on the main thread, for the module sets of `build/hist/<name>/` |
+| `webbench.html` | the same measurement in a browser (Chrome, Firefox), on the main thread, for the module sets of `build/hist/<name>/`. `?warm=N` sets the warm-up in seconds (2 by default); it prints the timer step |
 | `calls.wat`, `calls.mjs`, `calls.c` | cost of one math call from wasm and natively |
+| `calls.html` | `calls.mjs` in a browser, for `build/study/calls.wasm` (`wasm-as wasm-vs-native/calls.wat`) |
 | `accuracy.mjs` | largest difference between two module sets, on `web_check`'s renders |
 
 To reproduce:
@@ -99,6 +108,18 @@ It also needs a server (`python3 scripts/web_serve.py 8765`), then
 Headless Chrome needs `--enable-features=WebAssemblyUnlimitedSyncCompilation`:
 otherwise the main thread refuses to instantiate a module over 8 MB
 synchronously.
+
+In Firefox, `webbench.html` and `calls.html` run headless with a fresh
+profile (`firefox --headless --no-remote --profile DIR URL`) whose `user.js`
+holds:
+
+```js
+user_pref("privacy.reduceTimerPrecision", false);
+user_pref("privacy.reduceTimerPrecision.unconditional", false);
+user_pref("devtools.console.stdout.content", true);   // BENCH lines on stdout
+user_pref("dom.max_script_run_time", 0);
+user_pref("javascript.options.wasm_baselinejit", false); // the "Ion only" rows
+```
 
 ## 1. Native code without its liberties
 
@@ -242,6 +263,78 @@ time limit, it occupies 18.9 GB resident and 155 GB of peak footprint, with the
 machine swapping to disk. Point 12 of the report (`-vec` in O(L⁴)) therefore
 applies to the bodies too, and the hypothesis remains to be measured.
 
+## 6. Firefox
+
+Measured on 19 October 2026 with `webbench.html` in headless Firefox, on the
+same machine and the same module sets: `e14d953`, and `fm` for the
+`fastmath.lib` variant. Chrome 155 was measured again the same day as an
+anchor, and its figures match those of 17 October. Other work was running on
+the machine (load average 2.3 to 3).
+
+Two Firefox behaviours matter here:
+
+- **The timer.** Firefox rounds `performance.now()` by default (to 1 ms, or to
+  20 µs), and `webbench` sums block times of 0.2 to 1.7 ms. The profile turns
+  the rounding off (see Method). `webbench` now prints the smallest timer step
+  it sees: under 0.1 µs in this Firefox, 100 µs in headless Chrome.
+- **The tiers.** SpiderMonkey first compiles wasm with its baseline compiler,
+  then compiles a function again with Ion, its optimizing compiler, once that
+  function is hot ("lazy tiering"). Hence two rows per Firefox: the default,
+  and `javascript.options.wasm_baselinejit` = false, which compiles everything
+  with Ion from the start.
+
+Cost in % of a core, `e14d953`, range over five rounds:
+
+| Build | voice | body up | body down | light up | light down |
+|---|---|---|---|---|---|
+| native strict, no FMA or vectorization | 2.98 | 26.60 | 37.76 | 8.92 | 18.66 |
+| Chrome 155 | 7.0–7.2 | 39.7–40.5 | 54.4–57.0 | 12.9–13.3 | 29.4–31.0 |
+| Firefox 158, default | 6.1–6.5 | 74.1–80.6 | 125.5–133.5 | 29.1–29.5 | 69.8–71.2 |
+| Firefox 158, Ion only | 4.1–4.3 | 43.7–46.0 | 67.9–71.4 | 17.9–19.4 | 38.4–41.0 |
+| Nightly 160.0a1, default | 6.1–6.3 | 73.4–76.2 | 128.2–132.1 | 29.1–29.7 | 69.6–72.4 |
+| Nightly 160.0a1, Ion only | 4.0–4.2 | 43.0–44.0 | 67.2–72.9 | 17.7–18.6 | 38.1–38.8 |
+
+- **By default, Firefox never runs the optimized code of these modules.** The
+  default costs 1.5 to 1.9 times what Ion costs. A longer warm-up changes
+  nothing: with `?warm=10` the body with the pedal up costs 72.6 to 75.7 %, and
+  with `?warm=30` it costs 73.3 %. `wasm_lazy_tiering_synchronous` = true, which
+  compiles a function with Ion as soon as it is found hot, changes nothing
+  either. So the hotness trigger never fires on these functions.
+  - With `wasm_lazy_tiering` = false, every function is compiled with Ion in
+    the background after baseline. The bodies then reach Ion's cost within the
+    2 s of warm-up: 43.7–45.4/68.3–71.8 % for the imaged body, 17.8/38.7–40.6 %
+    for the light one. The voice does not (6.3 to 6.7 %).
+  - **For the web version**, this means that in a default Firefox the imaged
+    body needs 0.75 of a core with the pedal up and 1.3 cores with the pedal
+    down: it cannot run in real time. That was measured on the main thread.
+    The AudioWorklet was not measured, but it uses the same engine and tiers.
+- **Ion beats V8 on the voice**: 4.1 % against 7.0 %, 1.4 times native instead
+  of 2.4. `Math.pow` explains part of it (table below). 7.2 calls per sample at
+  16 ns less each make 0.5 point of the 2.9.
+- **V8 beats Ion on the bodies.** Ion costs 1.1 times V8 on the imaged body
+  with the pedal up and 1.25 times with the pedal down, and 1.3 to 1.4 times on
+  the light body. Against native, Ion costs 1.6 to 2.1 times on the bodies, and
+  V8 1.45 to 1.6 times.
+- **`fastmath.lib` still does not pay off.** With `fm`, the voice costs 6.8 to
+  7.3 % under Ion (6.7 to 7.0 % in Nightly), against 4.0 to 4.3 %. The bodies
+  do not move. In Chrome on the same day: 9.9 to 10.8 % against 7.0 to 7.2 %.
+- **Nightly 160 and Firefox 158 give the same costs**, in both modes.
+
+Cost of one math call from wasm, in ns (`calls.html`, the browser version of
+`calls.mjs`):
+
+| Function | Firefox 158 | Nightly 160 | Chrome 155 (headless) | node 22 | libm, `-O3` strict |
+|---|---|---|---|---|---|
+| `exp` | 2.58 | 2.57 | 2.33 | 2.6 | 0.9 |
+| `sin` | 2.98 | 3.01 | 7.43 | 3.6 | 1.0 |
+| `tanh` | 5.59 | 5.53 | 6.62 | 10.8 | 1.9 |
+| `pow` | 5.36 | 5.10 | 21.18 | 63.9 | 3.8 |
+
+The 64 ns of section 4 belong to node 22. Chrome 155 takes a third of that,
+and Firefox takes close to the libm's cost. The estimate of section 4 (430 ns
+per voice sample for `pow`) therefore holds for node only: in Chrome it is
+about 125 ns, and in Firefox about 10 ns.
+
 ## Leads for faust-rs, by expected gain
 
 1. **A smaller per-sample loop for V8.** This is the largest possible gain:
@@ -265,7 +358,13 @@ applies to the bodies too, and the hypothesis remains to be measured.
    Natively, neither FMA nor vectorization speeds them up.
 5. **Measure in Chrome, not only under node.** `make web-check` runs under
    node 22, whose V8 is older: it overstates the light body by 1.6 times
-   compared with Chrome.
+   compared with Chrome. And measure in Firefox: its costs differ from
+   Chrome's in both directions (section 6).
+6. **Get Firefox to run the optimized code.** Firefox users get baseline
+   code by default: 1.5 to 1.9 times Ion's cost, and an imaged body out of
+   real time. The page cannot change Firefox's preferences. Smaller
+   functions (lead 1) might also let lazy tiering fire; that is a hypothesis
+   and remains to be measured. The behaviour deserves a report to Mozilla.
 
 ## Unrelated to the wasm/native gap
 
