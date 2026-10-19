@@ -914,6 +914,9 @@ function onMidiMessage(event) {
 
 // ---------------------------------------------------------------- page
 
+// The faust-rs version and the precision of the modules, from the voice's JSON.
+let build = null;
+
 /**
  * Sets the page's texts in its language and rebuilds the translated parts.
  */
@@ -927,6 +930,7 @@ function applyLanguage() {
   showAudioState();
   $("how").innerHTML = HOW[lang];
   $("keys-hint").textContent = KEYS_HINT[lang];
+  if (build) $("build").textContent = `${t(TEXT.builtBy)} ${build.version}, ${t(build.double ? TEXT.doublePrecision : TEXT.singlePrecision)}`;
   buildControls();
   fillMidiSelect();
   fillChannelSelect();
@@ -944,6 +948,7 @@ async function main() {
       if (!r.ok) throw new Error(`${DSP_DIR}${n}.json: ${r.status} (run make web)`);
       return r.json();
     })));
+  build = { version: voiceJson.version, double: /(^|\s)-double(\s|$)/.test(voiceJson.compile_options || "") };
   for (const item of [...uiItems(voiceJson.ui), ...uiItems(bodyJson.ui)]) {
     if (item.address === undefined || item.min === undefined) continue;
     const key = controlKey(item.address);

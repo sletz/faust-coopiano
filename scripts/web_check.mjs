@@ -2,7 +2,9 @@
 // the voice wasm against the native voice for one strike, then both bodies fed
 // with the wasm voice's output, and prints what each costs per second of audio
 // in this JavaScript engine once compiled by its optimizing tier (an estimate of
-// the AudioWorklet load).
+// the AudioWorklet load). The wasm must match faustprobe (in double) to -100 dB of
+// the peak when compiled with -double, to -50 dB with -single (the default of
+// `make web`: about -64 dB for the voice, -71 dB for the bodies).
 //
 //   node scripts/web_check.mjs        (FAUSTPROBE as in the Makefile)
 
@@ -95,6 +97,9 @@ function relError(a, b) {
   return 20 * Math.log10(Math.max(err, 1e-300) / peak);
 }
 
+const double = /(^|\s)-double(\s|$)/.test(JSON.parse(fs.readFileSync(path.join(WEB, "voice.json"), "utf8")).compile_options || "");
+const limit = double ? -100 : -50;
+console.log(`modules in ${double ? "double" : "single"} precision: wasm vs faustprobe must be under ${limit} dB of the peak`);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "coopiano-web-"));
 let worst = -Infinity;
 try {
@@ -129,7 +134,7 @@ try {
 } finally {
   fs.rmSync(tmp, { recursive: true, force: true });
 }
-if (worst > -100) {
+if (worst > limit) {
   console.log(`FAIL: wasm differs from faustprobe by ${worst.toFixed(1)} dB`);
   process.exit(1);
 }

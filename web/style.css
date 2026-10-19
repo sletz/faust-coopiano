@@ -63,6 +63,7 @@ h1 { margin: 0; font-size: 1.6rem; font-weight: 650; }
 h2 { margin: 0 0 8px; font-size: 1.2rem; }
 h3 { margin: 0; font-size: 1.05rem; }
 header p { margin: 4px 0 0; color: var(--muted); }
+header p.build { font-size: 0.85rem; }
 main { max-width: 1280px; margin: 0 auto; padding: 0 24px 40px; }
 section {
   background: var(--panel);

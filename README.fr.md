@@ -70,8 +70,10 @@ modules : `make -B web` et `make web-check`, puis commiter `web/dsp` en nommant
 dans le message le commit faust-rs qui l'a construit, et pousser.
 
 - **Moteur.** La voix et les deux corps sont `dsp/coopiano.dsp` et
-  `dsp/coopiano_light.dsp`, compilés par `faust-rs -lang wasm -double` (la voix est
-  `process`, un corps est `effect`, avec `-pn effect`). Ils tournent dans un
+  `dsp/coopiano_light.dsp`, compilés par `faust-rs -lang wasm -single` (la voix est
+  `process`, un corps est `effect`, avec `-pn effect` ; `make web
+  WEB_PRECISION=-double` pour la double précision). La page affiche la version de
+  faust-rs et la précision de ses modules, lues dans leur JSON. Ils tournent dans un
   AudioWorklet (`web/coopiano-processor.js`) à 44,1 kHz, que le navigateur
   rééchantillonne vers la carte son. Le worklet fait ce que font les architectures
   polyphoniques de Faust :
@@ -84,8 +86,14 @@ dans le message le commit faust-rs qui l'a construit, et pousser.
   - sans voix qui sonne, il cesse de calculer le corps quand sa sortie est restée
     une seconde sous -120 dBFS : une page au repos ne coûte rien.
 
-  `make web-check` trouve la sortie du wasm égale à celle de faustprobe : -296 dB
-  de la crête pour la voix, -270 dB pour les corps.
+  `make web-check` compare le wasm à faustprobe en double : -64 dB de la crête
+  pour la voix, -71 dB pour les corps (-296 et -270 dB avec `-double`). Sur tout le
+  clavier (A0 à C8, vélocités 0,1 à 1), la voix s'écarte de la voix en double d'au
+  plus -46 dB de la crête (A2 fortissimo, dans le contact du marteau) ; là et sur
+  C1 et C4, le niveau RMS diffère de moins de 0,02 dB, au même fondamental. La
+  simple précision ramène les modules à 8,8 Mo au lieu de 14 Mo. Dans la page,
+  elle ne change pas la charge du thread audio (8 voix : 53 à 57 % avec le corps
+  léger, 67 à 71 % avec le corps imagé, dans les deux précisions).
 - **Jouer.**
   - Souris ou écran tactile sur les touches. La vélocité vient de la position du
     clic (plus bas sur la touche, plus fort) ou d'un curseur.

@@ -127,20 +127,22 @@ paper: figures
 	$(MAKE) -C paper
 
 # The web version: the voice is `process` of dsp/coopiano.dsp, the bodies its
-# `effect` and the one of dsp/coopiano_light.dsp, in double precision.
+# `effect` and the one of dsp/coopiano_light.dsp, in single precision (WEB_PRECISION
+# = -double for the precision of the native build).
 WEB_DEPS = dsp/coopiano.lib dsp/coopiano_tables.lib
+WEB_PRECISION ?= -single
 
 $(WEB_DSP)/voice.wasm: dsp/coopiano.dsp $(WEB_DEPS)
 	@mkdir -p $(WEB_DSP)
-	$(FAUSTRS) -lang wasm -double --timeout 0 -I dsp dsp/coopiano.dsp -o $@
+	$(FAUSTRS) -lang wasm $(WEB_PRECISION) --timeout 0 -I dsp dsp/coopiano.dsp -o $@
 
 $(WEB_DSP)/body.wasm: dsp/coopiano.dsp $(WEB_DEPS)
 	@mkdir -p $(WEB_DSP)
-	$(FAUSTRS) -lang wasm -double --timeout 0 -I dsp -pn effect dsp/coopiano.dsp -o $@
+	$(FAUSTRS) -lang wasm $(WEB_PRECISION) --timeout 0 -I dsp -pn effect dsp/coopiano.dsp -o $@
 
 $(WEB_DSP)/body_light.wasm: dsp/coopiano_light.dsp $(WEB_DEPS)
 	@mkdir -p $(WEB_DSP)
-	$(FAUSTRS) -lang wasm -double --timeout 0 -I dsp -pn effect dsp/coopiano_light.dsp -o $@
+	$(FAUSTRS) -lang wasm $(WEB_PRECISION) --timeout 0 -I dsp -pn effect dsp/coopiano_light.dsp -o $@
 
 web: $(WEB_DSP)/voice.wasm $(WEB_DSP)/body.wasm $(WEB_DSP)/body_light.wasm
 

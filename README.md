@@ -70,8 +70,10 @@ new modules, run `make -B web` and `make web-check`, then commit `web/dsp` with 
 faust-rs commit that built it in the message, and push.
 
 - **Engine.** The voice and the two bodies are `dsp/coopiano.dsp` and
-  `dsp/coopiano_light.dsp`, compiled by `faust-rs -lang wasm -double` (the voice is
-  `process`, a body is `effect`, through `-pn effect`). They run in an AudioWorklet
+  `dsp/coopiano_light.dsp`, compiled by `faust-rs -lang wasm -single` (the voice is
+  `process`, a body is `effect`, through `-pn effect`; `make web
+  WEB_PRECISION=-double` for double precision). The page shows the faust-rs version
+  and the precision of its modules, read from their JSON. They run in an AudioWorklet
   (`web/coopiano-processor.js`) at 44.1 kHz, which the browser resamples to the
   device. The worklet does what Faust's polyphonic architectures do:
   - it sums the voices' five outputs into the body, computed once;
@@ -83,8 +85,14 @@ faust-rs commit that built it in the message, and push.
   - with no voice sounding, it stops computing the body once its output has
     stayed below -120 dBFS for a second, so an idle page costs nothing.
 
-  `make web-check` finds the wasm output equal to faustprobe's: -296 dB of the
-  peak for the voice, -270 dB for the bodies.
+  `make web-check` compares the wasm with faustprobe in double: -64 dB of the peak
+  for the voice, -71 dB for the bodies (-296 and -270 dB with `-double`). Across
+  the keyboard (A0 to C8, velocities 0.1 to 1), the voice differs from the double
+  one by at most -46 dB of the peak (A2 fortissimo, in the hammer contact); there
+  and on C1 and C4, the RMS level differs by less than 0.02 dB, with the same
+  fundamental. Single precision makes the modules 8.8 MB instead of 14 MB. In the
+  page, it does not change the audio thread's load (8 voices: 53 to 57 % with the
+  light body, 67 to 71 % with the imaged one, in either precision).
 - **Playing.**
   - Mouse or touch on the keys. The velocity comes from the click position (lower
     on the key is louder) or from a slider.
