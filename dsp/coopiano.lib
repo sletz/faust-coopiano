@@ -1545,32 +1545,42 @@ with {
 // the trigger. Compression and rate are taken at n; a strike starts the hammer
 // at the string, at the key's speed `maximum_velocity_mps * v^velocity_exponent`;
 // it separates when it moves away after a contact.
-_hammer(m, v, ysf, ydf, rs, rv, u, trig) = (ysf, ydf, u, trig) : (step ~ si.bus(4)) : !, !, !, !, _
+// The solve runs in an ondemand domain while the hammer is active (from the
+// strike to its separation, 24 ms at most): it was about 40 % of a voice's
+// cost. Stopped, the domain outputs 0, as the solve does once `active` is 0.
+_hammer(m, v, ysf, ydf, rs, rv, u, trig) = (m, v, rs, rv, ysf, ydf, u, trig) : (dom ~ _) : !, _
 with {
-    mh = key_mh(m);
-    p = key_p(m);
-    ns = key_ns(m);
-    v0 = _h_vmax * pow(v, _h_vexp);
-    step(yh, vh, tc, ac, ysf, ydf, uu, tr) = yh1, vh1, tc1, ac1, F
+    dom(acp, mm, vv, rss, rvv, ysf, ydf, uu, tr) = (on, mm, vv, rss, rvv, ysf, ydf, uu, tr)
+        : ondemand(solve) : _, *(on)
+    with { on = (tr > 0) | (acp > 0.0); };
+    // The contact solve: its state, and outputs `active` and F.
+    solve(m, v, rs, rv, ysf, ydf, u, trig) = (ysf, ydf, u, trig) : (step ~ si.bus(4)) : !, !, !, _, _
     with {
-        vh0 = select2(tr, vh, v0);
-        yh0 = select2(tr, yh, ysf - _T * vh0);
-        tc0 = select2(tr, tc, 0.0);
-        ac0 = select2(tr, ac, 1.0);
-        yfree = yh0 + _T * vh0 - _T * _T * uu / (3.0 * mh);
-        a = yfree - ysf;
-        // compression rate at n: d0 - d1 F
-        d0 = vh0 - _T * uu / (2.0 * mh) - ydf;
-        d1 = _T / (2.0 * mh) + rv;
-        A = key_K(m) * ns * max(0.0, 1.0 + 0.12 * d0) * ac0;
-        E = 0.12 * d1 * key_K(m) * ns * ac0;
-        contact = (a > 0.0) * (A > 0.0);
-        d = felt_solve(a, (_T * _T / (6.0 * mh) + rs) * A, E, p);
-        F = contact * A * pow(d, p) / (1.0 + E * pow(d, p));
-        vh1 = vh0 - _T * (uu + F) / (2.0 * mh);
-        yh1 = yfree - _T * _T * F / (6.0 * mh);
-        tc1 = max(tc0, contact);
-        ac1 = ac0 * (1.0 - tc1 * (1.0 - contact) * (vh1 < 0.0));
+        mh = key_mh(m);
+        p = key_p(m);
+        ns = key_ns(m);
+        v0 = _h_vmax * pow(v, _h_vexp);
+        step(yh, vh, tc, ac, ysf, ydf, uu, tr) = yh1, vh1, tc1, ac1, F
+        with {
+            vh0 = select2(tr, vh, v0);
+            yh0 = select2(tr, yh, ysf - _T * vh0);
+            tc0 = select2(tr, tc, 0.0);
+            ac0 = select2(tr, ac, 1.0);
+            yfree = yh0 + _T * vh0 - _T * _T * uu / (3.0 * mh);
+            a = yfree - ysf;
+            // compression rate at n: d0 - d1 F
+            d0 = vh0 - _T * uu / (2.0 * mh) - ydf;
+            d1 = _T / (2.0 * mh) + rv;
+            A = key_K(m) * ns * max(0.0, 1.0 + 0.12 * d0) * ac0;
+            E = 0.12 * d1 * key_K(m) * ns * ac0;
+            contact = (a > 0.0) * (A > 0.0);
+            d = felt_solve(a, (_T * _T / (6.0 * mh) + rs) * A, E, p);
+            F = contact * A * pow(d, p) / (1.0 + E * pow(d, p));
+            vh1 = vh0 - _T * (uu + F) / (2.0 * mh);
+            yh1 = yfree - _T * _T * F / (6.0 * mh);
+            tc1 = max(tc0, contact);
+            ac1 = ac0 * (1.0 - tc1 * (1.0 - contact) * (vh1 < 0.0));
+        };
     };
 };
 
