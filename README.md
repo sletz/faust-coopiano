@@ -92,7 +92,8 @@ faust-rs commit that built it in the message, and push.
   and on C1 and C4, the RMS level differs by less than 0.02 dB, with the same
   fundamental. Single precision makes the modules 8.8 MB instead of 14 MB. In the
   page, it does not change the audio thread's load (8 voices: 53 to 57 % with the
-  light body, 67 to 71 % with the imaged one, in either precision).
+  light body, 67 to 71 % with the imaged one, in either precision; measured with
+  the faust-rs 0.9.1 modules, before the hammer and sympathetic changes below).
 - **Playing.**
   - Mouse or touch on the keys. The velocity comes from the click position (lower
     on the key is louder) or from a slider.
@@ -115,14 +116,22 @@ faust-rs commit that built it in the message, and push.
   starts from the defaults and sets some controls (never the pedal); the other
   tabs then show what it set, and a control changed afterwards marks it as
   modified. The soundboard's modes stay those fitted to the C++ grand.
-- **Cost.** Built with faust-rs `main-dev` at `c6d9aece`, the wasm runs 1.2 to 2.5
+- **Cost.** Built with faust-rs 0.9.2 (`4dc847c4`), the wasm runs 1.0 to 2.3
   times slower than the native build (`make web-check`, node on an Apple M5,
-  second of steady state; native: `scripts/cost.sh`):
+  second of steady state, four runs; native: `scripts/cost.sh`):
   | DSP | pedal up | pedal down | native, pedal up | Emscripten, pedal up (0.2.3) |
   |---|---|---|---|---|
-  | voice (one note held) | 5.1 to 5.2 % | | 3.3 % | 5.7 % |
-  | light body | 21 to 25 % | 38 to 42 % | 9.9 % | 20 % |
-  | imaged body | 44 to 45 % | 63 to 65 % | 37.5 % | 49 % |
+  | voice (one note held) | 2.2 to 2.5 % | | 2.0 % | 5.7 % |
+  | light body | 19 to 23 % | 30 to 33 % | 9.9 % | 20 % |
+  | imaged body | 37 to 42 % | 50 to 53 % | 36.0 % | 49 % |
+  `coopiano.lib` now solves the hammer's contact only from the strike to the
+  separation, in an `ondemand` domain clocked by the hammer's `active` state (the
+  solve, seven `pow` a sample, was about 40 % of a voice), and computes the
+  sympathetic resonators' coefficients when their parameters or the dampers'
+  openness change, five products a sample instead of nine. Before these two
+  changes, with the same compiler, a held key cost 5.1 % in wasm (8.4 % on A1,
+  5.5 % now) and 3.3 % per sounding voice natively, and the wasm light body 33 to
+  35 % with the pedal down.
   `coopiano.lib` 0.2.4 computes the parameters without `ba.sAndH` (report,
   point 6). Against 0.2.3 with the same compiler, the wasm voice and imaged body
   cost the same, and the light body 3 to 6 points more with the pedal up. Two
@@ -141,7 +150,8 @@ faust-rs commit that built it in the message, and push.
   `compute` share wasm locals: Safari's engine gives each local a stack slot,
   and the voice's 37,720 locals overflowed the AudioWorklet thread's stack
   (now 2,177). Safari computes the wasm about twice as slowly as Chrome (light
-  body 40 % of a core, a voice 8 %, under `jsc`): fewer voices sound at once.
+  body 40 % of a core, a voice 8 %, under `jsc`, before the hammer and
+  sympathetic changes): fewer voices sound at once.
 
 ## How the model streams what the C++ prepares
 
@@ -323,7 +333,7 @@ much.
 | Sympathetic bank on the C++ force | identical to 1e-12 (-248 dB) |
 | Soundboard fit | -25.5 dB (shared response), -22.8 to -25.7 dB (regions); frequency response within 0.1 dB median, under 0.7 dB for 90 % of frequencies |
 | Whole instrument vs `Engine`, C4, dry and with reverb (`make engine`) | level within 0.1 dB per channel while the note sounds, L/R correlation identical (0.355 and 0.311), reverb tail within 0.1 dB |
-| Cost, native (clang -O3, `results/cost.txt`) | 3.1 % of a core per sounding voice; body 36 % (pedal up) to 40 % (pedal down); light body 10 % to 15 % |
+| Cost, native (clang -O3, `results/cost.txt`) | 2.0 % of a core per sounding voice; body 36 % (pedal up) to 38.5 % (pedal down); light body 10 % to 12.6 % |
 
 ## Against Pianoteq
 

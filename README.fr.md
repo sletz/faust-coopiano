@@ -93,7 +93,9 @@ dans le message le commit faust-rs qui l'a construit, et pousser.
   C1 et C4, le niveau RMS diffère de moins de 0,02 dB, au même fondamental. La
   simple précision ramène les modules à 8,8 Mo au lieu de 14 Mo. Dans la page,
   elle ne change pas la charge du thread audio (8 voix : 53 à 57 % avec le corps
-  léger, 67 à 71 % avec le corps imagé, dans les deux précisions).
+  léger, 67 à 71 % avec le corps imagé, dans les deux précisions ; mesuré avec les
+  modules de faust-rs 0.9.1, avant les changements du marteau et des cordes
+  sympathiques décrits plus bas).
 - **Jouer.**
   - Souris ou écran tactile sur les touches. La vélocité vient de la position du
     clic (plus bas sur la touche, plus fort) ou d'un curseur.
@@ -121,14 +123,23 @@ dans le message le commit faust-rs qui l'a construit, et pousser.
   onglets montrent alors ce qu'il a réglé, et un réglage changé ensuite le
   marque comme modifié. Les modes de la table d'harmonie restent ceux ajustés au
   grand piano C++.
-- **Coût.** Compilé par faust-rs `main-dev` à `c6d9aece`, le wasm tourne 1,2 à
-  2,5 fois plus lentement que la version native (`make web-check`, node sur un
-  Apple M5, seconde en régime établi ; natif : `scripts/cost.sh`) :
+- **Coût.** Compilé par faust-rs 0.9.2 (`4dc847c4`), le wasm tourne 1,0 à 2,3
+  fois plus lentement que la version native (`make web-check`, node sur un
+  Apple M5, seconde en régime établi, quatre mesures ; natif : `scripts/cost.sh`) :
   | DSP | pédale levée | pédale enfoncée | natif, pédale levée | Emscripten, pédale levée (0.2.3) |
   |---|---|---|---|---|
-  | voix (une note tenue) | 5,1 à 5,2 % | | 3,3 % | 5,7 % |
-  | corps léger | 21 à 25 % | 38 à 42 % | 9,9 % | 20 % |
-  | corps imagé | 44 à 45 % | 63 à 65 % | 37,5 % | 49 % |
+  | voix (une note tenue) | 2,2 à 2,5 % | | 2,0 % | 5,7 % |
+  | corps léger | 19 à 23 % | 30 à 33 % | 9,9 % | 20 % |
+  | corps imagé | 37 à 42 % | 50 à 53 % | 36,0 % | 49 % |
+  `coopiano.lib` ne résout plus le contact du marteau que de la frappe à la
+  séparation, dans un domaine `ondemand` cadencé par l'état `active` du marteau
+  (la résolution, sept `pow` par échantillon, faisait environ 40 % d'une voix),
+  et calcule les coefficients des résonateurs sympathiques quand leurs
+  paramètres ou l'ouverture des étouffoirs changent : cinq produits par
+  échantillon au lieu de neuf. Avant ces deux changements, avec le même
+  compilateur, une touche tenue coûtait 5,1 % en wasm (8,4 % sur A1, 5,5 %
+  désormais) et 3,3 % par voix qui sonne en natif, et le corps léger en wasm 33 à
+  35 % pédale enfoncée.
   `coopiano.lib` 0.2.4 calcule les paramètres sans `ba.sAndH` (rapport,
   point 6). Face à 0.2.3 avec le même compilateur, la voix et le corps imagé
   coûtent autant en wasm, et le corps léger 3 à 6 points de plus pédale levée.
@@ -149,7 +160,8 @@ dans le message le commit faust-rs qui l'a construit, et pousser.
   locale une case de pile, et les 37 720 locales de la voix débordaient la pile
   du thread de l'AudioWorklet (2 177 désormais). Safari calcule le wasm environ
   deux fois moins vite que Chrome (corps léger 40 % d'un cœur, une voix 8 %,
-  sous `jsc`) : moins de voix sonnent ensemble.
+  sous `jsc`, avant les changements du marteau et des cordes sympathiques) :
+  moins de voix sonnent ensemble.
 
 ## Ce que le modèle calcule au fil de l'eau
 
@@ -343,7 +355,7 @@ moins.
 | Résonance sympathique sur la force C++ | identique à 1e-12 (-248 dB) |
 | Ajustement de la table d'harmonie | -25,5 dB (réponse partagée), -22,8 à -25,7 dB (régions) ; réponse en fréquence à 0,1 dB en médiane, moins de 0,7 dB pour 90 % des fréquences |
 | Instrument complet contre `Engine`, do 4, sec et avec réverbération (`make engine`) | niveau à 0,1 dB par canal pendant la note, corrélation G/D identique (0,355 et 0,311), queue de réverbération à 0,1 dB |
-| Coût natif (clang -O3, `results/cost.txt`) | 3,1 % d'un cœur par voix qui sonne ; corps 36 % (pédale levée) à 40 % (pédale enfoncée) ; corps léger 10 % à 15 % |
+| Coût natif (clang -O3, `results/cost.txt`) | 2,0 % d'un cœur par voix qui sonne ; corps 36 % (pédale levée) à 38,5 % (pédale enfoncée) ; corps léger 10 % à 12,6 % |
 
 ## Face à Pianoteq
 
