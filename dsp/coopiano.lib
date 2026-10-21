@@ -2098,14 +2098,30 @@ with { st = 1.0 / (_r_transition * ma.SR); };
 // Change pulse of the bank's parameters.
 _res_chg = _first | (_r_maxdecay != _r_maxdecay') | (_r_damper != _r_damper') | (_voicing_hash != _voicing_hash');
 
-// The resonators of key g: their parameters, the drive and the openness in.
-_res_key_dsp(g) = route(6 * n + 2, 8 * n, par(q, 8 * n, (src(q) + 1, q + 1)))
-    : par(p, n, \(op, cl, cs, sn, dr, damped, xx, od).(_resmode(xx, select2(damped, 1.0, od), op, cl, cs, sn, dr)))
+// The coefficients of n resonators for the openness od: their parameters then
+// od in; for each, the radius times cos and sin and the drive times the
+// openness, so that a resonator costs five products a sample. Computed in an
+// ondemand domain when the parameters or the openness change (`_res_key`): the
+// openness moves only while the dampers lift or seat.
+_res_coefs(n) = (si.bus(6 * n), (_ <: si.bus(n))) : route(7 * n, 7 * n, par(q, 7 * n, (src(q) + 1, q + 1)))
+    : par(p, n, \(op, cl, cs, sn, dr, damped, od).(coefs(op, cl, cs, sn, dr, select2(damped, 1.0, od))))
+with {
+    src(q) = select2(q % 7 < 6, 6 * n + int(q / 7), 6 * int(q / 7) + q % 7);
+    coefs(op, cl, cs, sn, dr, o) = rc * cs, rc * sn, dr * o
+    with { rc = cl + o * (op - cl); };
+};
+
+// The resonators of key g: their coefficients and the drive in.
+_res_key_dsp(g) = route(3 * n + 1, 4 * n, par(q, 4 * n, (src(q) + 1, q + 1)))
+    : par(p, n, _resrot)
     : gsum(n, 32)
 with {
     n = ba.take(g + 1, tb.res_n);
-    src(q) = select2(q % 8 < 6, 6 * n + q % 8 - 6, 6 * int(q / 8) + q % 8);
+    src(q) = select2(q % 4 < 3, 3 * n, 3 * int(q / 4) + q % 4);
 };
+
+// One resonator from its coefficients and the drive x.
+_resrot(rc, rs, g, x) = ((\(re, im).(rc * re - rs * im + g * x, rs * re + rc * im)) ~ (_, _)) : _, !;
 
 // A damped key sounds while its dampers are lifted and for six closed T60
 // after they seat. Seated is an openness below 1e-9, not 0: faust-rs normalizes
@@ -2117,9 +2133,12 @@ _RES_SEATED = 1e-9;
 _res_awake(o) = (o > _RES_SEATED) | (quiet < ma.SR * _r_damper * 6.0)
 with { quiet = (+(1) : *(o <= _RES_SEATED)) ~ _; };
 
-// Key g's resonators with their parameters, recomputed on change.
-_res_key(g, chg, x, o) = (on_change(chg, 21.0 + g, \(b).(par(p, ba.take(g + 1, tb.res_n), _res_params(b, p + 1)))), x, o)
-    : _res_key_dsp(g);
+// Key g's resonators with their parameters, recomputed on change, and their
+// coefficients, recomputed on change or when the openness o moves.
+_res_key(g, chg, x, o) = ((chg | (o != o'), on_change(chg, 21.0 + g, \(b).(par(p, n, _res_params(b, p + 1)))), o)
+    : ondemand(_res_coefs(n))), x
+    : _res_key_dsp(g)
+with { n = ba.take(g + 1, tb.res_n); };
 
 //-----------------------------------`(cp.)res_bank`------------------------------------
 // The wet output of the sympathetic register for the summed bridge force `x`
@@ -2141,7 +2160,7 @@ _res_key(g, chg, x, o) = (on_change(chg, 21.0 + g, \(b).(par(p, ba.take(g + 1, t
 // ```
 //----------------------------------------------------------------------------------------
 declare res_bank license "MIT";
-res_bank(x) = (par(g, nd, damped(g)), par(g, 88 - nd, _res_key(nd + g, _res_chg, x, _res_open))) : gsum(88, 8)
+res_bank(x) = (par(g, nd, damped(g)), par(g, 88 - nd, _res_key(nd + g, _res_chg, x, 1.0))) : gsum(88, 8)
 with {
     nd = tb.res_first_undamped;
     on = _res_awake(_res_open);
