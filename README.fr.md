@@ -50,6 +50,43 @@ coûte 2,2 fois plus et les corps jusqu'à 45 % de plus, et un faust-rs antérie
 `ccca27eb` refuse `dsp/coopiano_hammer.dsp` (point 16). `JOBS` (4 par défaut) fixe
 le nombre de rendus que `make contact`, `notes` et `keyboard` lancent en parallèle.
 
+## Plugin JUCE
+
+`faust2juce`, de la distribution Faust C++, construit l'instrument en plugin
+JUCE avec faust-rs comme compilateur. Le script appelle `faust` : il faut donc
+que `faust` soit faust-rs. On installe le binaire release en
+`/usr/local/bin/faust-rs`, on garde le compilateur C++ sous un autre nom, et on
+fait pointer `faust` vers faust-rs :
+
+```bash
+sudo mv /usr/local/bin/faust /usr/local/bin/faust-cpp   # garder le compilateur C++
+sudo ln -s /usr/local/bin/faust-rs /usr/local/bin/faust
+cd dsp
+faust2juce -midi -nvoices 16 -effect auto coopiano.dsp
+```
+
+`-effect auto` prend `effect = cp.body` dans `coopiano.dsp` : 16 voix de
+`cp.voice_out` pilotées en MIDI, suivies d'un seul corps. Le script écrit
+`dsp/coopiano/` (ignoré par git) : `coopiano.jucer`, `FaustPluginProcessor.cpp`
+(la voix, 34 Mo) et `effect.h` (le corps, 15 Mo). On ouvre `coopiano.jucer`
+dans Projucer pour exporter le projet de l'IDE. La génération prend environ
+17 s sur un M5.
+
+Il faut faust-rs 0.9.3, ou `main-dev` à partir de `121db1b1` (2026-10-26) :
+un faust-rs plus ancien ne cherche pas dans `/usr/local/share/faust` les
+fichiers d'architecture que lui passe `faust2juce` (`juce-plugin.cpp`,
+`minimal-effect.cpp`) et échoue sur l'effet.
+
+Tant que le lien est en place, tout outil qui appelle `faust` obtient faust-rs.
+C'est le cas des tests et de l'oracle impulse de faust-rs qui prennent
+`/usr/local/bin/faust` comme référence C++ : leur donner
+`FAUST_CPP_BIN=/usr/local/bin/faust-cpp`. Pour revenir au compilateur C++ :
+
+```bash
+sudo rm /usr/local/bin/faust
+sudo mv /usr/local/bin/faust-cpp /usr/local/bin/faust
+```
+
 ## Version web
 
 `web/` est l'instrument dans le navigateur : un clavier dans la page, une entrée
