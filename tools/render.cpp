@@ -57,7 +57,8 @@ struct dsp {
 };
 
 // Each generated file defines the same inline helpers: one namespace each
-// (the standard headers they include are already in, so their guards hold).
+// (the standard headers they include are already in, so their guards hold;
+// the guard of the integer helpers is lifted for the second file).
 #include <algorithm>
 #include <cstddef>
 #include <cstring>
