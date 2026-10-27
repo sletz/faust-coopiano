@@ -26,16 +26,18 @@ struct Meta {
     virtual ~Meta() {}
     virtual void declare(const char*, const char*) {}
 };
-// Controls by path without the program name ("gain", "action/pedal",
-// "reverb/mix"), as the web page keys them: a label alone is ambiguous (the
-// voice has both "gain", the velocity, and "resonance/gain").
+// Controls by path without the program name and the `settings` tab group
+// ("gain", "action/pedal", "reverb/mix"), as the web page keys them: a label
+// alone is ambiguous (the voice has both "gain", the velocity, and
+// "resonance/gain").
 struct UI {
     std::map<std::string, double*> zones;
     std::vector<std::string> boxes;
     virtual ~UI() {}
     std::string path(const char* l) const {
         std::string p;
-        for (size_t i = 1; i < boxes.size(); ++i) p += boxes[i] + "/";
+        for (size_t i = 1; i < boxes.size(); ++i)
+            if (boxes[i] != "settings") p += boxes[i] + "/";
         return p + l;
     }
     virtual void openTabBox(const char* l) { boxes.push_back(l); }
@@ -68,6 +70,7 @@ struct dsp {
 namespace gen_voice {
 #include "coopiano_voice.cpp"
 }
+#undef FAUST_INT_WRAP
 namespace gen_body {
 #include "coopiano_body.cpp"
 }

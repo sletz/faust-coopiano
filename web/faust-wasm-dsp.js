@@ -59,16 +59,19 @@ export function uiItems(ui, out = []) {
   return out;
 }
 
-// A control's address without the program name: "/coopiano/action/pedal"
-// and "/coopiano_light/action/pedal" are both "action/pedal", so the voice
-// and either body share their controls the way Faust's polyphonic
-// architectures do.
+// A control's address without the program name and the `settings` tab group:
+// "/coopiano/settings/action/pedal" (the voice, next to freq/gain/gate) and
+// "/settings/action/pedal" (a body, whose only group is the tab group) are both
+// "action/pedal", so the voice and either body share their controls the way
+// Faust's polyphonic architectures do.
 /**
- * @param {string} address - a Faust control address ("/coopiano/action/pedal")
- * @returns {string} the address without its first component ("action/pedal")
+ * @param {string} address - a Faust control address ("/coopiano/settings/action/pedal")
+ * @returns {string} the address without its first component and the tab group ("action/pedal")
  */
 export function controlKey(address) {
-  return address.split("/").filter(Boolean).slice(1).join("/");
+  const parts = address.split("/").filter(Boolean).slice(1);
+  if (parts[0] === "settings") parts.shift();
+  return parts.join("/");
 }
 
 // `value` rounded up to a multiple of `alignment`.

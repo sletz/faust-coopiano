@@ -165,8 +165,8 @@ REGIONS = 4;
 
 //=================================== Voicing controls ===================================
 // The controls of coopiano's `default.ini`, with its defaults and ranges, grouped
-// as in the file. They are internal definitions (their UI paths are the interface);
-// `dsp/coopiano.dsp` shows them all.
+// as in the file, one tab per group. They are internal definitions (their UI paths
+// are the interface); `dsp/coopiano.dsp` shows them all.
 //
 // | group | control | default | range | effect |
 // |---|---|---|---|---|
@@ -210,13 +210,16 @@ REGIONS = 4;
 // them in `ref/dump.cpp` and run `make tables`.
 //========================================================================================
 
-// UI groups of the controls.
-_g_hammer(x) = vgroup("hammer", x);
-_g_strings(x) = vgroup("strings", x);
-_g_tone(x) = vgroup("tone", x);
-_g_reson(x) = vgroup("resonance", x);
-_g_room(x) = vgroup("reverb", x);
-_g_action(x) = vgroup("action", x);
+// UI groups of the controls: one tab each in the `settings` tab group, in the
+// order of the web page's tabs (the `[n]` prefix orders them and is not part of
+// the paths: "/coopiano/settings/hammer/stiffness_scale").
+_g_tabs(x) = tgroup("settings", x);
+_g_hammer(x) = _g_tabs(vgroup("[1]hammer", x));
+_g_strings(x) = _g_tabs(vgroup("[2]strings", x));
+_g_tone(x) = _g_tabs(vgroup("[3]tone", x));
+_g_reson(x) = _g_tabs(vgroup("[4]resonance", x));
+_g_room(x) = _g_tabs(vgroup("[5]reverb", x));
+_g_action(x) = _g_tabs(vgroup("[6]action", x));
 
 
 // Hammer: felt stiffness, mass, felt width, maximum speed, velocity exponent.
