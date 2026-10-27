@@ -1,7 +1,7 @@
 {
 	"name": "coopiano",
 	"filename": "coopiano.dsp",
-	"version": "0.9.2",
+	"version": "0.9.3",
 	"compile_options": "-lang wasm -single",
 	"library_list": ["dsp/coopiano.lib","dsp/coopiano_tables.lib","/usr/local/share/faust/signals.lib","/usr/local/share/faust/routes.lib","/usr/local/share/faust/maths.lib","/usr/local/share/faust/platform.lib","/usr/local/share/faust/basics.lib","/usr/local/share/faust/filters.lib","/usr/local/share/faust/delays.lib"],
 	"include_pathnames": ["dsp","/Users/letz/Developpements/RUST/faust-coopiano/../faust-rs/target/share/faust","/usr/local/share/faust","/usr/share/faust"],
@@ -36,12 +36,12 @@
 		{ "/usr/local/share/faust/basics.lib/name": "Faust Basic Element Library" },
 		{ "/usr/local/share/faust/basics.lib/version": "1.23.6" },
 		{ "/usr/local/share/faust/delays.lib/name": "Faust Delay Library" },
-		{ "/usr/local/share/faust/delays.lib/version": "1.3.2" },
+		{ "/usr/local/share/faust/delays.lib/version": "1.3.3" },
 		{ "/usr/local/share/faust/filters.lib/name": "Faust Filters Library" },
 		{ "/usr/local/share/faust/filters.lib/pole:author": "Julius O. Smith III" },
 		{ "/usr/local/share/faust/filters.lib/pole:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
 		{ "/usr/local/share/faust/filters.lib/pole:license": "LicenseRef-STK-4.3" },
-		{ "/usr/local/share/faust/filters.lib/version": "1.13.0" },
+		{ "/usr/local/share/faust/filters.lib/version": "1.13.4" },
 		{ "/usr/local/share/faust/filters.lib/zero:author": "Julius O. Smith III" },
 		{ "/usr/local/share/faust/filters.lib/zero:copyright": "Copyright (C) 2003-2019 by Julius O. Smith III <jos@ccrma.stanford.edu>" },
 		{ "/usr/local/share/faust/filters.lib/zero:license": "LicenseRef-STK-4.3" },
@@ -63,61 +63,22 @@
 	],
 	"ui": [ 
 		{
-			"type": "vgroup",
-			"label": "coopiano",
+			"type": "tgroup",
+			"label": "settings",
 			"items": [ 
 				{
 					"type": "vgroup",
-					"label": "action",
-					"items": [ 
-						{
-							"type": "hslider",
-							"label": "damper_scale",
-							"varname": "fHslider26",
-							"shortname": "damper_scale",
-							"address": "/coopiano/action/damper_scale",
-							"index": 112,
-							"init": 1,
-							"min": 0.25,
-							"max": 4,
-							"step": 0.01
-						},
-						{
-							"type": "hslider",
-							"label": "output_gain",
-							"varname": "fHslider31",
-							"shortname": "output_gain",
-							"address": "/coopiano/action/output_gain",
-							"index": 12,
-							"init": 0.0011,
-							"min": 0,
-							"max": 0.01,
-							"step": 0.0001
-						},
-						{
-							"type": "hslider",
-							"label": "pedal",
-							"varname": "fHslider2",
-							"shortname": "pedal",
-							"address": "/coopiano/action/pedal",
-							"index": 220,
-							"init": 0,
-							"min": 0,
-							"max": 1,
-							"step": 0.01
-						}
-					]
-				},
-				{
-					"type": "vgroup",
 					"label": "hammer",
+					"meta": [
+						{ "1": "" }
+					],
 					"items": [ 
 						{
 							"type": "hslider",
 							"label": "felt_width_scale",
 							"varname": "fHslider7",
 							"shortname": "felt_width_scale",
-							"address": "/coopiano/hammer/felt_width_scale",
+							"address": "/settings/hammer/felt_width_scale",
 							"index": 36,
 							"init": 1.4,
 							"min": 0.5,
@@ -129,7 +90,7 @@
 							"label": "mass_scale",
 							"varname": "fHslider6",
 							"shortname": "mass_scale",
-							"address": "/coopiano/hammer/mass_scale",
+							"address": "/settings/hammer/mass_scale",
 							"index": 32,
 							"init": 1.3,
 							"min": 0.5,
@@ -141,7 +102,7 @@
 							"label": "maximum_velocity_mps",
 							"varname": "fHslider8",
 							"shortname": "maximum_velocity_mps",
-							"address": "/coopiano/hammer/maximum_velocity_mps",
+							"address": "/settings/hammer/maximum_velocity_mps",
 							"index": 40,
 							"init": 6,
 							"min": 2,
@@ -153,7 +114,7 @@
 							"label": "stiffness_scale",
 							"varname": "fHslider5",
 							"shortname": "stiffness_scale",
-							"address": "/coopiano/hammer/stiffness_scale",
+							"address": "/settings/hammer/stiffness_scale",
 							"index": 28,
 							"init": 0.9,
 							"min": 0.25,
@@ -165,7 +126,7 @@
 							"label": "velocity_exponent",
 							"varname": "fHslider9",
 							"shortname": "velocity_exponent",
-							"address": "/coopiano/hammer/velocity_exponent",
+							"address": "/settings/hammer/velocity_exponent",
 							"index": 44,
 							"init": 1.8,
 							"min": 0.75,
@@ -176,122 +137,17 @@
 				},
 				{
 					"type": "vgroup",
-					"label": "resonance",
-					"items": [ 
-						{
-							"type": "hslider",
-							"label": "damper_decay_seconds",
-							"varname": "fHslider3",
-							"shortname": "damper_decay_seconds",
-							"address": "/coopiano/resonance/damper_decay_seconds",
-							"index": 24,
-							"init": 0.18,
-							"min": 0.03,
-							"max": 2,
-							"step": 0.01
-						},
-						{
-							"type": "hslider",
-							"label": "gain",
-							"varname": "fHslider0",
-							"shortname": "gain",
-							"address": "/coopiano/resonance/gain",
-							"index": 4,
-							"init": 0.18,
-							"min": 0,
-							"max": 1,
-							"step": 0.01
-						},
-						{
-							"type": "hslider",
-							"label": "maximum_decay_seconds",
-							"varname": "fHslider4",
-							"shortname": "maximum_decay_seconds",
-							"address": "/coopiano/resonance/maximum_decay_seconds",
-							"index": 276,
-							"init": 12,
-							"min": 1,
-							"max": 30,
-							"step": 0.1
-						},
-						{
-							"type": "hslider",
-							"label": "transition_seconds",
-							"varname": "fHslider1",
-							"shortname": "transition_seconds",
-							"address": "/coopiano/resonance/transition_seconds",
-							"index": 212,
-							"init": 0.04,
-							"min": 0.001,
-							"max": 0.2,
-							"step": 0.001
-						}
-					]
-				},
-				{
-					"type": "vgroup",
-					"label": "reverb",
-					"items": [ 
-						{
-							"type": "hslider",
-							"label": "damping_hz",
-							"varname": "fHslider29",
-							"shortname": "damping_hz",
-							"address": "/coopiano/reverb/damping_hz",
-							"index": 232,
-							"init": 5500,
-							"min": 500,
-							"max": 12000,
-							"step": 1
-						},
-						{
-							"type": "hslider",
-							"label": "decay_seconds",
-							"varname": "fHslider30",
-							"shortname": "decay_seconds",
-							"address": "/coopiano/reverb/decay_seconds",
-							"index": 240,
-							"init": 1.1,
-							"min": 0.2,
-							"max": 4,
-							"step": 0.01
-						},
-						{
-							"type": "hslider",
-							"label": "mix",
-							"varname": "fHslider27",
-							"shortname": "mix",
-							"address": "/coopiano/reverb/mix",
-							"index": 8,
-							"init": 0.3,
-							"min": 0,
-							"max": 1,
-							"step": 0.01
-						},
-						{
-							"type": "hslider",
-							"label": "predelay_ms",
-							"varname": "fHslider28",
-							"shortname": "predelay_ms",
-							"address": "/coopiano/reverb/predelay_ms",
-							"index": 120,
-							"init": 12,
-							"min": 0,
-							"max": 80,
-							"step": 0.1
-						}
-					]
-				},
-				{
-					"type": "vgroup",
 					"label": "strings",
+					"meta": [
+						{ "2": "" }
+					],
 					"items": [ 
 						{
 							"type": "hslider",
 							"label": "bridge_coupling",
 							"varname": "fHslider19",
 							"shortname": "bridge_coupling",
-							"address": "/coopiano/strings/bridge_coupling",
+							"address": "/settings/strings/bridge_coupling",
 							"index": 84,
 							"init": 1,
 							"min": 0,
@@ -303,7 +159,7 @@
 							"label": "decay_scale",
 							"varname": "fHslider10",
 							"shortname": "decay_scale",
-							"address": "/coopiano/strings/decay_scale",
+							"address": "/settings/strings/decay_scale",
 							"index": 48,
 							"init": 1.1,
 							"min": 0.25,
@@ -315,7 +171,7 @@
 							"label": "fast_decay_scale",
 							"varname": "fHslider16",
 							"shortname": "fast_decay_scale",
-							"address": "/coopiano/strings/fast_decay_scale",
+							"address": "/settings/strings/fast_decay_scale",
 							"index": 72,
 							"init": 0.95,
 							"min": 0.75,
@@ -327,7 +183,7 @@
 							"label": "horizontal_ratio",
 							"varname": "fHslider17",
 							"shortname": "horizontal_ratio",
-							"address": "/coopiano/strings/horizontal_ratio",
+							"address": "/settings/strings/horizontal_ratio",
 							"index": 76,
 							"init": 0.4,
 							"min": 0,
@@ -339,7 +195,7 @@
 							"label": "inharmonicity_scale",
 							"varname": "fHslider13",
 							"shortname": "inharmonicity_scale",
-							"address": "/coopiano/strings/inharmonicity_scale",
+							"address": "/settings/strings/inharmonicity_scale",
 							"index": 60,
 							"init": 0.85,
 							"min": 0,
@@ -351,7 +207,7 @@
 							"label": "longitudinal_gain",
 							"varname": "fHslider18",
 							"shortname": "longitudinal_gain",
-							"address": "/coopiano/strings/longitudinal_gain",
+							"address": "/settings/strings/longitudinal_gain",
 							"index": 80,
 							"init": 0.22,
 							"min": 0,
@@ -363,7 +219,7 @@
 							"label": "partial_loss_scale",
 							"varname": "fHslider12",
 							"shortname": "partial_loss_scale",
-							"address": "/coopiano/strings/partial_loss_scale",
+							"address": "/settings/strings/partial_loss_scale",
 							"index": 56,
 							"init": 1,
 							"min": 0.25,
@@ -375,7 +231,7 @@
 							"label": "treble_decay_scale",
 							"varname": "fHslider11",
 							"shortname": "treble_decay_scale",
-							"address": "/coopiano/strings/treble_decay_scale",
+							"address": "/settings/strings/treble_decay_scale",
 							"index": 52,
 							"init": 0.38,
 							"min": 0.1,
@@ -387,7 +243,7 @@
 							"label": "treble_unison_detune",
 							"varname": "fHslider15",
 							"shortname": "treble_unison_detune",
-							"address": "/coopiano/strings/treble_unison_detune",
+							"address": "/settings/strings/treble_unison_detune",
 							"index": 68,
 							"init": 0.875,
 							"min": 0,
@@ -399,7 +255,7 @@
 							"label": "unison_detune_scale",
 							"varname": "fHslider14",
 							"shortname": "unison_detune_scale",
-							"address": "/coopiano/strings/unison_detune_scale",
+							"address": "/settings/strings/unison_detune_scale",
 							"index": 64,
 							"init": 0.35,
 							"min": 0,
@@ -411,13 +267,16 @@
 				{
 					"type": "vgroup",
 					"label": "tone",
+					"meta": [
+						{ "3": "" }
+					],
 					"items": [ 
 						{
 							"type": "hslider",
 							"label": "bridge_curve_scale",
 							"varname": "fHslider22",
 							"shortname": "bridge_curve_scale",
-							"address": "/coopiano/tone/bridge_curve_scale",
+							"address": "/settings/tone/bridge_curve_scale",
 							"index": 96,
 							"init": 1,
 							"min": 0,
@@ -429,7 +288,7 @@
 							"label": "fundamental_boost_db",
 							"varname": "fHslider20",
 							"shortname": "fundamental_boost_db",
-							"address": "/coopiano/tone/fundamental_boost_db",
+							"address": "/settings/tone/fundamental_boost_db",
 							"index": 88,
 							"init": 0,
 							"min": -6,
@@ -441,7 +300,7 @@
 							"label": "lower_overtone_cut_db",
 							"varname": "fHslider21",
 							"shortname": "lower_overtone_cut_db",
-							"address": "/coopiano/tone/lower_overtone_cut_db",
+							"address": "/settings/tone/lower_overtone_cut_db",
 							"index": 92,
 							"init": 0,
 							"min": 0,
@@ -453,7 +312,7 @@
 							"label": "mid_frequency_hz",
 							"varname": "fHslider24",
 							"shortname": "mid_frequency_hz",
-							"address": "/coopiano/tone/mid_frequency_hz",
+							"address": "/settings/tone/mid_frequency_hz",
 							"index": 104,
 							"init": 1200,
 							"min": 200,
@@ -465,7 +324,7 @@
 							"label": "mid_gain_db",
 							"varname": "fHslider23",
 							"shortname": "mid_gain_db",
-							"address": "/coopiano/tone/mid_gain_db",
+							"address": "/settings/tone/mid_gain_db",
 							"index": 100,
 							"init": -1.5,
 							"min": -9,
@@ -477,11 +336,170 @@
 							"label": "mid_width_octaves",
 							"varname": "fHslider25",
 							"shortname": "mid_width_octaves",
-							"address": "/coopiano/tone/mid_width_octaves",
+							"address": "/settings/tone/mid_width_octaves",
 							"index": 108,
 							"init": 0.9,
 							"min": 0.2,
 							"max": 2,
+							"step": 0.01
+						}
+					]
+				},
+				{
+					"type": "vgroup",
+					"label": "resonance",
+					"meta": [
+						{ "4": "" }
+					],
+					"items": [ 
+						{
+							"type": "hslider",
+							"label": "damper_decay_seconds",
+							"varname": "fHslider3",
+							"shortname": "damper_decay_seconds",
+							"address": "/settings/resonance/damper_decay_seconds",
+							"index": 24,
+							"init": 0.18,
+							"min": 0.03,
+							"max": 2,
+							"step": 0.01
+						},
+						{
+							"type": "hslider",
+							"label": "gain",
+							"varname": "fHslider0",
+							"shortname": "gain",
+							"address": "/settings/resonance/gain",
+							"index": 4,
+							"init": 0.18,
+							"min": 0,
+							"max": 1,
+							"step": 0.01
+						},
+						{
+							"type": "hslider",
+							"label": "maximum_decay_seconds",
+							"varname": "fHslider4",
+							"shortname": "maximum_decay_seconds",
+							"address": "/settings/resonance/maximum_decay_seconds",
+							"index": 276,
+							"init": 12,
+							"min": 1,
+							"max": 30,
+							"step": 0.1
+						},
+						{
+							"type": "hslider",
+							"label": "transition_seconds",
+							"varname": "fHslider1",
+							"shortname": "transition_seconds",
+							"address": "/settings/resonance/transition_seconds",
+							"index": 212,
+							"init": 0.04,
+							"min": 0.001,
+							"max": 0.2,
+							"step": 0.001
+						}
+					]
+				},
+				{
+					"type": "vgroup",
+					"label": "reverb",
+					"meta": [
+						{ "5": "" }
+					],
+					"items": [ 
+						{
+							"type": "hslider",
+							"label": "damping_hz",
+							"varname": "fHslider29",
+							"shortname": "damping_hz",
+							"address": "/settings/reverb/damping_hz",
+							"index": 232,
+							"init": 5500,
+							"min": 500,
+							"max": 12000,
+							"step": 1
+						},
+						{
+							"type": "hslider",
+							"label": "decay_seconds",
+							"varname": "fHslider30",
+							"shortname": "decay_seconds",
+							"address": "/settings/reverb/decay_seconds",
+							"index": 240,
+							"init": 1.1,
+							"min": 0.2,
+							"max": 4,
+							"step": 0.01
+						},
+						{
+							"type": "hslider",
+							"label": "mix",
+							"varname": "fHslider27",
+							"shortname": "mix",
+							"address": "/settings/reverb/mix",
+							"index": 8,
+							"init": 0.3,
+							"min": 0,
+							"max": 1,
+							"step": 0.01
+						},
+						{
+							"type": "hslider",
+							"label": "predelay_ms",
+							"varname": "fHslider28",
+							"shortname": "predelay_ms",
+							"address": "/settings/reverb/predelay_ms",
+							"index": 120,
+							"init": 12,
+							"min": 0,
+							"max": 80,
+							"step": 0.1
+						}
+					]
+				},
+				{
+					"type": "vgroup",
+					"label": "action",
+					"meta": [
+						{ "6": "" }
+					],
+					"items": [ 
+						{
+							"type": "hslider",
+							"label": "damper_scale",
+							"varname": "fHslider26",
+							"shortname": "damper_scale",
+							"address": "/settings/action/damper_scale",
+							"index": 112,
+							"init": 1,
+							"min": 0.25,
+							"max": 4,
+							"step": 0.01
+						},
+						{
+							"type": "hslider",
+							"label": "output_gain",
+							"varname": "fHslider31",
+							"shortname": "output_gain",
+							"address": "/settings/action/output_gain",
+							"index": 12,
+							"init": 0.0011,
+							"min": 0,
+							"max": 0.01,
+							"step": 0.0001
+						},
+						{
+							"type": "hslider",
+							"label": "pedal",
+							"varname": "fHslider2",
+							"shortname": "pedal",
+							"address": "/settings/action/pedal",
+							"index": 220,
+							"init": 0,
+							"min": 0,
+							"max": 1,
 							"step": 0.01
 						}
 					]
