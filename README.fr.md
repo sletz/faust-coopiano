@@ -72,6 +72,25 @@ faust2juce -midi -nvoices 16 -effect auto coopiano.dsp
 dans Projucer pour exporter le projet de l'IDE. La génération prend environ
 17 s sur un M5.
 
+Depuis Faust 2.92.0, le dossier contient aussi un `CMakeLists.txt`, qui
+construit le plugin sans Projucer, avec les options données à `faust2juce` :
+
+```bash
+cd dsp/coopiano
+cmake -B build -DJUCE_DIR=/chemin/vers/JUCE   # sans JUCE_DIR, CMake télécharge JUCE 8.0.10
+cmake --build build --config Release
+```
+
+L'AU, le VST3 et l'application autonome sont alors dans
+`dsp/coopiano/build/coopiano_artefacts/Release` ; JUCE ne construit l'AUv3
+qu'avec `cmake -G Xcode`. Pour un export donné, on utilise l'une ou l'autre
+construction : enregistrer `coopiano.jucer` dans Projucer remplace le
+`JuceLibraryCode/JuceHeader.h` qu'inclut la construction CMake. Depuis la même
+version, les paramètres de l'hôte portent les noms courts de Faust ; pour
+garder l'automation de sessions enregistrées avec une construction plus
+ancienne, on configure avec `-DCMAKE_CXX_FLAGS=-DFAUST_JUCE_FULLPATH_IDS`, qui
+rétablit les chemins complets.
+
 Il faut faust-rs 0.9.3, ou `main-dev` à partir de `121db1b1` (2026-10-26) :
 un faust-rs plus ancien ne cherche pas dans `/usr/local/share/faust` les
 fichiers d'architecture que lui passe `faust2juce` (`juce-plugin.cpp`,
