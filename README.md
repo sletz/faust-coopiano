@@ -109,6 +109,8 @@ sudo mv /usr/local/bin/faust-cpp /usr/local/bin/faust
 and every control with its explanation, one tab per type of control, in English
 and French.
 
+![The web version: the transport, the keyboard and the Presets tab of the controls](docs/images/web-en.jpg)
+
 ```bash
 make web        # web/dsp: the voice and both bodies compiled to wasm by faust-rs (~20 s)
 make -B web     # the same after a faust-rs change (the modules depend on dsp/ only)

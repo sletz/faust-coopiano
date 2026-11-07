@@ -112,6 +112,8 @@ sudo mv /usr/local/bin/faust-cpp /usr/local/bin/faust
 Web MIDI, et chaque réglage avec son explication, un onglet par type de réglage,
 en français et en anglais.
 
+![La version web : le transport, le clavier et l'onglet Préréglages des réglages](docs/images/web-fr.jpg)
+
 ```bash
 make web        # web/dsp : la voix et les deux corps compilés en wasm par faust-rs (~20 s)
 make -B web     # idem après un changement de faust-rs (les modules ne dépendent que de dsp/)
